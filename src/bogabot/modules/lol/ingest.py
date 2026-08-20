@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import logging
 
-from bogabot.core.models import MatchRecord
+from bogabot.core.models import MatchRecord, MatchSummary
 from bogabot.core.timeutils import start_of_week, to_epoch_seconds
 from bogabot.riot.client import RiotClient
-from bogabot.riot.mapper import map_match
+from bogabot.riot.mapper import map_match, map_match_summary
 from bogabot.settings import Settings
 from bogabot.storage.base import LinkRepository, MatchRepository
 
@@ -78,3 +78,16 @@ class IngestService:
 
         log.info("Ingesta completa: %d partidas-jugador nuevas.", len(new_records))
         return new_records
+
+    async def build_match_summary(self, match_id: str) -> MatchSummary | None:
+        """Arma el resumen completo (10 jugadores) de una partida ya
+        ingerida, para el aviso "en vivo" (ver `LolScheduler`). Devuelve None
+        si falla la consulta a Riot; un jugador no debe frenar al resto."""
+        links = await self._links.get_all_links()
+        puuid_to_discord = {l.puuid: l.discord_id for l in links}
+        try:
+            data = await self._riot.get_match(match_id)
+        except Exception:  # noqa: BLE001 - una partida no debe frenar al resto
+            log.exception("Error trayendo la partida %s para el resumen del aviso.", match_id)
+            return None
+        return map_match_summary(data, puuid_to_discord)

@@ -97,8 +97,32 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
 
 - **Región:** LAS → `RIOT_PLATFORM=la2`, `RIOT_REGION=americas` (routing de
   account-v1 y match-v5).
-- **Colas contadas:** todas (incluye ARAM/rotativos). Se **excluyen remakes**
-  (< 5 min o early surrender) en `riot/mapper.py`.
+- **Colas contadas:** todas (incluye ARAM/rotativos) para el ranking diario/
+  semanal. Se **excluyen remakes** (< 5 min o early surrender) en
+  `riot/mapper.py`. **Excepción:** el recap "Trolls y Pros" (`previous_week_rows`
+  en `ranking.py`) solo cuenta **Ranked Flex** (`RANKED_FLEX_QUEUE_ID = 440`
+  en `riot/mapper.py`), para medir el juego serio del grupo.
+- **Tipo de partida y rival de línea en los avisos:** `riot/mapper.py::queue_name`
+  traduce `queue_id` a un nombre legible (Ranked Flex, ARAM, etc.) y
+  `MatchRecord.opponent_champion` guarda al rival de línea (mismo
+  `teamPosition`, equipo contrario; `""` si no aplica, ej. ARAM).
+- **Aviso "en vivo" con cuadro completo (10 jugadores):** a diferencia del
+  `MatchRecord` (que persiste solo a los jugadores vinculados, uno por fila),
+  el aviso de partida terminada necesita ver a los 10. Para eso
+  `IngestService.build_match_summary(match_id)` vuelve a pedirle la partida
+  a Riot y `riot/mapper.py::map_match_summary` arma un `MatchSummary`
+  (`core/models.py`, no se persiste) con un `MatchParticipant` por jugador,
+  marcando `discord_id` cuando el puuid está vinculado. `scheduler.py::_match_notification_embed`
+  arma el embed: resultado general (o "equipos contrarios" si el grupo quedó
+  dividido), un field por equipo y un field "línea vs línea" con el
+  matchup por posición. Se etiqueta (`<@id>`) a los vinculados; al resto se
+  los muestra por su Riot ID.
+- **Farm (CS):** `riot/mapper.py::_farm` suma `totalMinionsKilled` +
+  `neutralMinionsKilled`. Se guarda en `MatchRecord.cs` (ranking/scoring) y
+  en `MatchParticipant.cs` (aviso en vivo). `PlayerStats.avg_cs`/`cs_per_min`
+  quedan disponibles y `cs_per_min` está en `SUPPORTED_METRICS`
+  (`scoring/schema.py`), pero **no** está activada por defecto en
+  `config/scoring.yaml` — es opt-in.
 - **Solo cuentan partidas jugadas con otro vinculado:** en `ingest.py`, antes
   de mapear una partida se chequea `metadata.participants` del JSON de
   match-v5 contra el set de puuids vinculados; si hay menos de 2 vinculados

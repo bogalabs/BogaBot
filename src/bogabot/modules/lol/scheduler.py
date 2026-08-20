@@ -28,8 +28,12 @@ from typing import TYPE_CHECKING
 import discord
 from discord.ext import commands, tasks
 
-from bogabot.core.models import MatchRecord
+from bogabot.core.models import MatchParticipant, MatchRecord, MatchSummary
 from bogabot.core.timeutils import get_tz, is_week_start_day
+from bogabot.riot.mapper import queue_name
+
+# Orden de exposición de los carriles en el cuadro "línea vs línea".
+_LANE_ORDER = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
 
 if TYPE_CHECKING:
     from bogabot.bot import BogaBot
@@ -114,9 +118,8 @@ class LolScheduler(commands.Cog):
         await self.bot.wait_until_ready()
 
     async def _notify_new_matches(self, records: list[MatchRecord]) -> None:
-        """Postea un aviso por cada partida nueva, etiquetando a los
-        jugadores del grupo que la jugaron (uno solo si jugaron separados,
-        o el resultado de cada uno si terminaron en equipos contrarios)."""
+        """Postea un aviso (cuadro con las 10 posiciones) por cada partida
+        nueva, etiquetando a los jugadores del grupo que la jugaron."""
         if not records:
             return
         channel_id = self.bot.settings.match_notify_channel_id
@@ -130,18 +133,54 @@ class LolScheduler(commands.Cog):
             log.error("MATCH_NOTIFY_CHANNEL_ID no apunta a un canal de texto; no puedo avisar.")
             return
 
-        by_match: dict[str, list[MatchRecord]] = {}
-        for record in records:
-            by_match.setdefault(record.match_id, []).append(record)
-
-        for match_records in by_match.values():
-            await channel.send(self._match_notification_text(match_records))
+        match_ids = dict.fromkeys(r.match_id for r in records)  # preserva orden, sin duplicados
+        for match_id in match_ids:
+            summary = await self.bot.ingest.build_match_summary(match_id)
+            if summary is None:
+                continue
+            await channel.send(embed=self._match_notification_embed(summary))
 
     @staticmethod
-    def _match_notification_text(records: list[MatchRecord]) -> str:
-        lines = [
-            f"<@{r.discord_id}> {'🏆 ganó' if r.win else '💀 perdió'} con "
-            f"**{r.champion}** ({r.kills}/{r.deaths}/{r.assists})"
-            for r in records
+    def _player_line(p: MatchParticipant) -> str:
+        who = f"<@{p.discord_id}>" if p.discord_id is not None else p.display_name
+        return f"{who} — **{p.champion}** ({p.kills}/{p.deaths}/{p.assists}) 🌾{p.cs}"
+
+    @classmethod
+    def _match_notification_embed(cls, summary: MatchSummary) -> discord.Embed:
+        linked = [p for p in summary.participants if p.discord_id is not None]
+        if linked and all(p.team_id == linked[0].team_id for p in linked):
+            title = "🏆 ¡Victoria!" if linked[0].win else "💀 Derrota"
+            color = discord.Color.green() if linked[0].win else discord.Color.red()
+        else:
+            title = "🔀 Partida con integrantes en equipos contrarios"
+            color = discord.Color.orange()
+
+        minutes = summary.game_duration_seconds // 60
+        embed = discord.Embed(
+            title=f"🎮 {title}",
+            description=f"_{queue_name(summary.queue_id)} · {minutes} min_",
+            color=color,
+        )
+
+        team_ids = sorted({p.team_id for p in summary.participants})
+        icons = {team_ids[0]: "🔵", **({team_ids[1]: "🔴"} if len(team_ids) > 1 else {})}
+        for team_id in team_ids:
+            team = [p for p in summary.participants if p.team_id == team_id]
+            result = "Ganó" if team and team[0].win else "Perdió"
+            name = f"{icons.get(team_id, '⬜')} Equipo {'azul' if team_id == team_ids[0] else 'rojo'} — {result}"
+            value = "\n".join(cls._player_line(p) for p in team) or "—"
+            embed.add_field(name=name, value=value, inline=True)
+
+        by_position: dict[str, list[MatchParticipant]] = {}
+        for p in summary.participants:
+            if p.position:
+                by_position.setdefault(p.position, []).append(p)
+        lane_lines = [
+            f"**{pos}:** {cls._player_line(pair[0])}  🆚  {cls._player_line(pair[1])}"
+            for pos in _LANE_ORDER
+            if len(pair := by_position.get(pos, [])) == 2
         ]
-        return "🎮 **Partida terminada**\n" + "\n".join(lines)
+        if lane_lines:
+            embed.add_field(name="⚔️ Línea vs línea", value="\n".join(lane_lines), inline=False)
+
+        return embed

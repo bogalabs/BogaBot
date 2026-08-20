@@ -20,6 +20,7 @@ SUPPORTED_METRICS: dict[str, str] = {
     "avg_assists": "avg_assists",
     "damage_per_min": "damage_per_min",
     "avg_vision": "avg_vision",
+    "cs_per_min": "cs_per_min",
     "games_played": "games_played",
 }
 

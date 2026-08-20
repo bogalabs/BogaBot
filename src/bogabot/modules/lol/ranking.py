@@ -12,6 +12,7 @@ import discord
 
 from bogabot.core.models import PlayerStats, RankingRow
 from bogabot.core.timeutils import now, start_of_day, start_of_week
+from bogabot.riot.mapper import RANKED_FLEX_QUEUE_ID
 from bogabot.scoring.engine import ScoringEngine
 from bogabot.settings import Settings
 from bogabot.storage.base import MatchRepository
@@ -30,8 +31,12 @@ class RankingService:
         self._scoring = scoring
         self._settings = settings
 
-    async def _rows_for_window(self, since: datetime, until: datetime) -> list[RankingRow]:
+    async def _rows_for_window(
+        self, since: datetime, until: datetime, queue_id: int | None = None
+    ) -> list[RankingRow]:
         records = await self._matches.get_matches(since, until)
+        if queue_id is not None:
+            records = [m for m in records if m.queue_id == queue_id]
         by_player: dict[int, PlayerStats] = {}
         for m in records:
             stats = by_player.get(m.discord_id)
@@ -50,11 +55,13 @@ class RankingService:
         return await self._rows_for_window(start_of_week(tz), now(tz))
 
     async def previous_week_rows(self) -> list[RankingRow]:
-        """Ranking de la semana que acaba de cerrar (para el recap del lunes)."""
+        """Ranking de la semana que acaba de cerrar (para el recap del lunes).
+        Solo cuenta partidas de Ranked Flex: "Trolls y Pros" mide el juego
+        serio del grupo, no normales ni ARAM."""
         tz = self._settings.timezone
         this_week_start = start_of_week(tz)
         prev_week_start = this_week_start - timedelta(days=7)
-        return await self._rows_for_window(prev_week_start, this_week_start)
+        return await self._rows_for_window(prev_week_start, this_week_start, queue_id=RANKED_FLEX_QUEUE_ID)
 
     # --- Embeds ------------------------------------------------------------
     def build_ranking_embed(self, rows: list[RankingRow], title: str) -> discord.Embed:
@@ -72,8 +79,8 @@ class RankingService:
                 f"**Puntaje:** {row.score}\n"
                 f"{s.wins}V / {s.losses}D  ·  KDA {s.kda:.2f} "
                 f"({s.avg_kills:.1f}/{s.avg_deaths:.1f}/{s.avg_assists:.1f})\n"
-                f"Daño/min {s.damage_per_min:.0f}  ·  Visión {s.avg_vision:.0f}  "
-                f"·  {s.games} partidas  ·  🏆 {fav_champ}"
+                f"Daño/min {s.damage_per_min:.0f}  ·  Visión {s.avg_vision:.0f}  ·  Farm/min {s.cs_per_min:.1f}\n"
+                f"{s.games} partidas  ·  🏆 {fav_champ}"
             )
             embed.add_field(name=f"{medal} {row.display_name}", value=value, inline=False)
         return embed
@@ -83,9 +90,11 @@ class RankingService:
             title="📊 Tabla de Trolls y Pros de la semana",
             color=discord.Color.blurple(),
         )
-        embed.set_footer(text="Solo cuentan las partidas jugadas con al menos otro vinculado del grupo.")
+        embed.set_footer(
+            text="Solo cuentan partidas de Ranked Flex jugadas con al menos otro vinculado del grupo."
+        )
         if not rows:
-            embed.description = "No hubo partidas esta semana. Se salvaron de la vergüenza. 😌"
+            embed.description = "No hubo partidas de Ranked Flex esta semana. Se salvaron de la vergüenza. 😌"
             return embed
 
         top = rows[: min(3, len(rows))]
