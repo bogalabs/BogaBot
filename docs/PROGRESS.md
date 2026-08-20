@@ -3,7 +3,7 @@
 Documento **vivo**: actualizarlo a medida que avanza el proyecto. Marcar con
 `[x]` lo hecho y mover items entre secciones. Poner la fecha en cada cambio.
 
-_Última actualización: 2026-08-19_
+_Última actualización: 2026-08-19 (smoke test de credenciales)_
 
 ---
 
@@ -37,10 +37,14 @@ _Última actualización: 2026-08-19_
 ## ⛔ Faltante / próximos pasos
 
 ### Bloqueante para probar en vivo (lo hace José)
-- [ ] Completar `.env` (token, IDs de canal, Riot API key).
-- [ ] Crear canal privado de storage y canal de rankings; copiar sus IDs.
-- [ ] Invitar el bot con scope `applications.commands` y permisos de lectura/
-      escritura + leer historial en ambos canales.
+- [x] Completar `.env` (token, IDs de canal, Riot API key) — 2026-08-19
+- [x] Validado: Riot API key OK (LA2) y token de Discord OK (BogaBot#7320) — 2026-08-19
+- [ ] **Invitar el bot al servidor** (link de invitación generado; app id
+      1539812711804968980, permisos 84992). Sin esto `guilds` está vacío y el
+      storage no hidrata.
+- [ ] Completar `DISCORD_GUILD_ID` para sync instantáneo de slash commands.
+- [ ] Confirmar que STORAGE/RANKING channel IDs son de ese server y el bot
+      tiene ver/escribir/leer-historial ahí.
 - [ ] Primera corrida real: `/link` → ingesta → `/ranking` → posteo automático.
 
 ### Mejoras de producto/DX
