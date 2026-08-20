@@ -41,7 +41,8 @@ src/bogabot/
 ├── bot.py                  # composition root: arma e INYECTA todo
 ├── core/
 │   ├── models.py           # dominio: PlayerLink, MatchRecord, PlayerStats, RankingRow
-│   └── timeutils.py        # cortes de día/semana según TIMEZONE
+│   ├── timeutils.py        # cortes de día/semana según TIMEZONE
+│   └── discord_log_handler.py  # logging.Handler -> cola -> bot.py la manda a LOG_CHANNEL_ID
 ├── storage/                # capa Repository
 │   ├── base.py             # interfaces (ABC) — TODO depende de esto
 │   ├── discord_channel.py  # impl "Discord como DB" (actual)
@@ -53,10 +54,10 @@ src/bogabot/
 │   ├── schema.py           # carga/valida config/scoring.yaml
 │   └── engine.py           # puntaje compuesto (normaliza + pondera)
 └── modules/lol/            # feature LoL como cog autocontenido
-    ├── cog.py              # slash commands /link /unlink /ranking
-    ├── ingest.py           # ingesta de partidas
+    ├── cog.py              # slash commands /link /unlink /link-admin /ingest-now /ranking /help /ayuda
+    ├── ingest.py           # ingesta de partidas (devuelve list[MatchRecord] nuevos)
     ├── ranking.py          # agrega stats + arma embeds
-    └── scheduler.py        # job diario (discord.ext.tasks)
+    └── scheduler.py        # daily_job (1x/día) + notify_job (cada N min, avisos en vivo)
 config/scoring.yaml         # fórmula del ranking, editable sin tocar código
 tests/                      # tests de lógica pura (sin red ni tokens)
 ```
@@ -83,6 +84,10 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   (`SUPPORTED_METRICS`) + una property en `core/models.py::PlayerStats`, y
   listarla en `config/scoring.yaml`. Cero cambios en el motor.
 - **Agregar un slash command LoL:** método nuevo en `modules/lol/cog.py`.
+- **Restringir un comando por rol/canal:** el ID de rol o canal sale de
+  `settings.py` (nunca hardcodeado), y el chequeo se hace al inicio del
+  handler con un helper tipo `_is_dev`/`_has_role` (ver `LolCog`). Ejemplo:
+  `DEV_ROLE_ID` + `ADMIN_CHANNEL_ID` gatean `/link-admin`.
 - **Agregar una feature nueva (no-LoL, ej. módulo de IA):** carpeta nueva en
   `modules/`, con su cog, y registrarla en `bot.py::setup_hook`. No tocar LoL.
 - **Cambiar el backend de datos:** nueva clase en `storage/` que implemente
@@ -94,14 +99,40 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   account-v1 y match-v5).
 - **Colas contadas:** todas (incluye ARAM/rotativos). Se **excluyen remakes**
   (< 5 min o early surrender) en `riot/mapper.py`.
-- **Semana = domingo 00:00 hora local** (`TIMEZONE`, default Buenos Aires).
-- **Job 1×/día** a `DAILY_POST_HOUR`: ingesta → ranking diario; los domingos,
-  recap semanal "Trolls y Pros" de la semana que cerró.
+- **Solo cuentan partidas jugadas con otro vinculado:** en `ingest.py`, antes
+  de mapear una partida se chequea `metadata.participants` del JSON de
+  match-v5 contra el set de puuids vinculados; si hay menos de 2 vinculados
+  en esa partida (o sea, jugaste sin nadie del grupo), se descarta.
+- **Semana = lunes 00:00 hora local** (`TIMEZONE`, default Buenos Aires).
+- **Job 1×/día** a `DAILY_POST_HOUR:DAILY_POST_MINUTE` (recomendado cerca de
+  medianoche, ej. 23:55, para que el "ranking de hoy" no salga vacío si se
+  juega de noche): ingesta → ranking diario; los lunes, recap semanal
+  "Trolls y Pros" de la semana que cerró.
 - **Dedup por `(match_id, puuid)`**, sin cursor: cada corrida pide "desde el
-  domingo" y saltea lo ya guardado.
+  lunes" y saltea lo ya guardado. Por esto `/ingest-now` (comando manual de
+  ingesta, solo rol dev) es idempotente: correrlo varias veces no duplica nada.
 - **Storage actual = Discord** (mensajes JSON en canal privado + índice en
   memoria hidratado al arrancar). Es O(n) mensajes; migrar a DB real cuando
   crezca (la interfaz lo hace trivial).
+- **Comandos de administración** (`/link-admin`, `/ingest-now`) gatean por
+  rol (`DEV_ROLE_ID`) y opcionalmente por canal (`ADMIN_CHANNEL_ID`), ambos
+  configurables por `.env`. `/help` y `/ayuda` muestran comandos distintos
+  según el rol de quien pregunta (`DEV_ROLE_ID` vs `PLAYER_ROLE_ID`).
+- **Avisos de partida terminada:** `LolScheduler.notify_job` (solo si hay
+  `MATCH_NOTIFY_CHANNEL_ID`) llama a `ingest_all()` cada
+  `MATCH_POLL_INTERVAL_MINUTES` y postea un mensaje por partida nueva,
+  agrupando por `match_id` y etiquetando a cada jugador del grupo que
+  participó (con su resultado individual, por si quedaron en equipos
+  contrarios). `daily_job` llama al mismo helper (`_notify_new_matches`)
+  como red de seguridad. El dedup existente hace que correr `ingest_all()`
+  desde los dos loops sea gratis.
+- **Logging a Discord:** `DiscordLogHandler` (en `core/`) se engancha al
+  logger `"bogabot"` (no a `discord.*`, para no capturar el ruido de la
+  librería) cuando hay `LOG_CHANNEL_ID`. Solo encola texto formateado en
+  `emit()` (es sync); `BogaBot._flush_log_channel` (un `tasks.loop`) vacía
+  la cola cada 15s y la manda al canal. Nivel por defecto `WARNING`
+  (`LOG_CHANNEL_LEVEL`) para no saturar el canal con el polling de
+  `notify_job`.
 
 ## Correr y testear (Windows / PowerShell)
 

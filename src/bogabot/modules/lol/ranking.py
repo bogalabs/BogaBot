@@ -50,7 +50,7 @@ class RankingService:
         return await self._rows_for_window(start_of_week(tz), now(tz))
 
     async def previous_week_rows(self) -> list[RankingRow]:
-        """Ranking de la semana que acaba de cerrar (para el recap del domingo)."""
+        """Ranking de la semana que acaba de cerrar (para el recap del lunes)."""
         tz = self._settings.timezone
         this_week_start = start_of_week(tz)
         prev_week_start = this_week_start - timedelta(days=7)
@@ -59,6 +59,7 @@ class RankingService:
     # --- Embeds ------------------------------------------------------------
     def build_ranking_embed(self, rows: list[RankingRow], title: str) -> discord.Embed:
         embed = discord.Embed(title=title, color=discord.Color.gold())
+        embed.set_footer(text="Solo cuentan las partidas jugadas con al menos otro vinculado del grupo.")
         if not rows:
             embed.description = "Todavía no hay partidas registradas en esta ventana. 🦗"
             return embed
@@ -82,6 +83,7 @@ class RankingService:
             title="📊 Tabla de Trolls y Pros de la semana",
             color=discord.Color.blurple(),
         )
+        embed.set_footer(text="Solo cuentan las partidas jugadas con al menos otro vinculado del grupo.")
         if not rows:
             embed.description = "No hubo partidas esta semana. Se salvaron de la vergüenza. 😌"
             return embed
