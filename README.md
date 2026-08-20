@@ -58,11 +58,72 @@ pip install -r requirements.txt
 
 # 3. Configuración
 copy .env.example .env
-# Editá .env y completá los valores (ver abajo).
+# Editá .env y completá los valores (ver guía abajo).
 
 # 4. Correr
 python run.py
 ```
+
+## Guía rápida: correr tu propio bot en tu propio server
+
+Este bot es de uso libre — cualquiera puede clonar el repo y levantarlo en su
+propio server de Discord, con su propio bot y sus propios tokens. Pasos, en
+orden:
+
+### 1. Crear el bot en Discord
+1. Andá a [Discord Developer Portal](https://discord.com/developers/applications)
+   → **New Application**, ponele un nombre.
+2. Pestaña **Bot** → **Reset Token** → copiá el token. Ese valor va en
+   `DISCORD_TOKEN`. Guardalo ya, Discord no lo vuelve a mostrar.
+3. En esa misma pestaña, dejá los **Privileged Gateway Intents** apagados —
+   el bot no los necesita.
+
+### 2. Invitar el bot a tu server
+1. Pestaña **OAuth2 → URL Generator**.
+2. Scopes: `bot` y `applications.commands`.
+3. Bot Permissions: `Send Messages`, `Read Message History`, `Embed Links`,
+   `View Channel` y `Manage Roles` (esta última solo si vas a usar
+   `LOL_ROLE_ID`, para que el bot pueda asignarlo automáticamente).
+4. Copiá la URL generada al final de la página, abrila y elegí tu server.
+
+### 3. Activar el modo desarrollador (para copiar IDs)
+En Discord: **Configuración de usuario → Avanzado → Modo de desarrollador**.
+Con esto activado, click derecho sobre cualquier canal/rol/servidor te
+muestra la opción "Copiar ID".
+
+### 4. Crear los canales y roles
+En tu server, creá (y después copiá el ID de cada uno con click derecho):
+
+| Creá esto | Tipo | Va en |
+|---|---|---|
+| Un canal de texto **privado** (que solo vea el bot, nadie más escribe ahí) | canal | `STORAGE_CHANNEL_ID` |
+| Un canal público para los rankings | canal | `RANKING_CHANNEL_ID` |
+| *(Opcional)* Canal de avisos de partida terminada | canal | `MATCH_NOTIFY_CHANNEL_ID` |
+| *(Opcional)* Canal de logs del bot | canal | `LOG_CHANNEL_ID` |
+| *(Opcional)* Canal donde correr comandos de admin | canal | `ADMIN_CHANNEL_ID` |
+| Un rol para quien administra el bot | rol | `DEV_ROLE_ID` |
+| *(Opcional)* Un rol para jugadores/miembros del grupo | rol | `PLAYER_ROLE_ID` |
+| *(Opcional)* Un rol que se asigna solo al vincularse | rol | `LOL_ROLE_ID` |
+
+También necesitás el ID del server (click derecho sobre el ícono del server
+→ Copiar ID) para `DISCORD_GUILD_ID`.
+
+> 💡 El canal de `STORAGE_CHANNEL_ID` funciona como "base de datos" del bot
+> (ver [Arquitectura](#arquitectura-por-capas-cada-una-reemplazable) arriba)
+> — no debería verlo ni escribir en él nadie más que el bot.
+
+### 5. Conseguir la API key de Riot
+[developer.riotgames.com](https://developer.riotgames.com/) → generá una
+**Development API Key** (gratis, pero vence cada 24h — hay que regenerarla
+seguido a mano) o pedí una **Production Key** si querés algo estable. Va en
+`RIOT_API_KEY`. Ajustá también `RIOT_PLATFORM`/`RIOT_REGION` según la región
+de tu grupo (ver tabla de variables abajo).
+
+### 6. Completar el `.env` y correr
+Con todos los IDs y tokens, completá `.env` (ver la tabla completa de
+variables más abajo) y corré `python run.py`. Al primer arranque el bot
+registra los slash commands en tu server (instantáneo si pusiste
+`DISCORD_GUILD_ID`).
 
 ### Variables de entorno (.env)
 
