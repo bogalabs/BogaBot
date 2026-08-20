@@ -1,0 +1,43 @@
+# ==========================================================================
+# Configuración del motor de puntaje de BogaBot
+# --------------------------------------------------------------------------
+# Editá este archivo para cambiar la fórmula del ranking SIN tocar código.
+# Después usá /ranking o esperá el posteo automático para ver el efecto.
+#
+# Cómo funciona:
+#   1. Para cada jugador se calcula el valor de cada métrica listada abajo
+#      (promediado por partida donde corresponde).
+#   2. Cada métrica se normaliza entre todos los jugadores (ver "normalization")
+#      para que ninguna domine solo por tener números más grandes.
+#   3. El puntaje final = suma de (peso * valor_normalizado) de cada métrica.
+#      Si "higher_is_better: false", valores más BAJOS suman más (ej: muertes).
+# ==========================================================================
+
+version: 1
+
+# Cómo se agregan las partidas de cada jugador:
+#   per_game_average -> promedio por partida (justo para quien juega poco vs mucho)
+aggregation: per_game_average
+
+# Cómo se normaliza cada métrica antes de ponderar:
+#   zscore -> (valor - promedio) / desvío   (recomendado)
+#   minmax -> escala 0..1 entre el peor y el mejor
+#   none   -> usa el valor crudo (los pesos deben calibrarse a mano)
+normalization: zscore
+
+# Métricas disponibles (podés borrar/agregar/ajustar pesos libremente):
+#   win_rate         -> % de victorias
+#   kda              -> (kills + assists) / muertes
+#   avg_kills        -> kills promedio por partida
+#   avg_deaths       -> muertes promedio por partida
+#   avg_assists      -> asistencias promedio por partida
+#   damage_per_min   -> daño a campeones por minuto
+#   avg_vision       -> vision score promedio por partida
+#   games_played     -> cantidad de partidas (premia participación)
+metrics:
+  win_rate:       { weight: 5.0, higher_is_better: true }
+  kda:            { weight: 3.0, higher_is_better: true }
+  avg_deaths:     { weight: 2.0, higher_is_better: false }
+  damage_per_min: { weight: 1.5, higher_is_better: true }
+  avg_vision:     { weight: 1.0, higher_is_better: true }
+  games_played:   { weight: 0.5, higher_is_better: true }
