@@ -33,6 +33,7 @@ normalization: zscore
 #   avg_assists      -> asistencias promedio por partida
 #   damage_per_min   -> daño a campeones por minuto
 #   avg_vision       -> vision score promedio por partida
+#   cs_per_min       -> farm (minions + jungla) por minuto
 #   games_played     -> cantidad de partidas (premia participación)
 metrics:
   win_rate:       { weight: 5.0, higher_is_better: true }

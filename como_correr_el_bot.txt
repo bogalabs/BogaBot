@@ -1,0 +1,14 @@
+Como correr el bot (PowerShell)
+================================
+
+1. Activar el entorno virtual:
+   venv\Scripts\activate
+
+2. (Solo la primera vez, o si cambiaron dependencias)
+   pip install -r requirements.txt
+
+3. Correr el bot (requiere .env completo):
+   python run.py
+
+Para correr los tests:
+   python -m unittest discover -s tests -v
