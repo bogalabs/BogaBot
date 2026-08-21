@@ -33,6 +33,10 @@ class NotFoundError(RiotApiError):
     """404: recurso inexistente (ej. Riot ID que no existe)."""
 
 
+class RiotAuthError(RiotApiError):
+    """401/403: RIOT_API_KEY inválida o vencida (la dev key dura 24h)."""
+
+
 class RateLimiter:
     """Limitador por ventanas deslizantes. Serializa la espera con un lock,
     lo cual es más que suficiente para el volumen esperado."""
@@ -89,6 +93,8 @@ class RiotClient:
                 return await resp.json()
             if resp.status == 404:
                 raise NotFoundError(404, await resp.text())
+            if resp.status in (401, 403):
+                raise RiotAuthError(resp.status, await resp.text())
             if resp.status == 429 and _retries > 0:
                 retry_after = float(resp.headers.get("Retry-After", "1"))
                 log.warning("Rate limited por Riot; espero %.1fs y reintento.", retry_after)

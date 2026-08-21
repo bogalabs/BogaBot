@@ -68,6 +68,11 @@ _Última actualización: 2026-08-20 (3)_
       canal (`boga-bot-log`), no solo a la consola — 2026-08-20
 - [x] `.env` con `MATCH_NOTIFY_CHANNEL_ID`, `MATCH_POLL_INTERVAL_MINUTES`,
       `LOG_CHANNEL_ID` y `LOG_CHANNEL_LEVEL` completados — 2026-08-20
+- [x] Aviso de RIOT_API_KEY vencida: `RiotAuthError` (401/403) en
+      `riot/client.py` corta la corrida de `ingest_all()` y loguea un
+      `CRITICAL` (con cooldown de 3h) que llega a `boga-bot-log` — 2026-08-21
+- [x] Script de autorun local `scripts/run_bot.ps1` (consola visible + log
+      en `logs/`) — 2026-08-21
 
 ## 🚧 En progreso
 - [ ] _(nada activo)_
@@ -98,7 +103,11 @@ _Última actualización: 2026-08-20 (3)_
       esperar hasta 5 min (`MATCH_POLL_INTERVAL_MINUTES`) a que aparezca el
       mensaje en el canal de avisos.
 - [ ] Provocar un error a propósito (ej. Riot API key vencida) y confirmar
-      que aparece en `boga-bot-log`.
+      que aparece en `boga-bot-log`. Código listo desde 2026-08-21
+      (`RiotAuthError` en `riot/client.py` + alerta `CRITICAL` en
+      `ingest.py`), falta probarlo contra una key realmente vencida.
+- [ ] Registrar la Tarea Programada de Windows para el autorun (comando en
+      `scripts/run_bot.ps1`; falta correr `Register-ScheduledTask`).
 
 ### Mejoras de producto/DX
 - [ ] Comando para ver/editar el estado del propio vínculo (`/whoami`).
@@ -108,7 +117,6 @@ _Última actualización: 2026-08-20 (3)_
 ### Robustez
 - [ ] Reintentos/backoff más finos ante errores transitorios de Riot.
 - [ ] Tests del mapper (con un JSON de match-v5 de ejemplo).
-- [ ] Aviso en el canal cuando la Riot API key expira (401).
 
 ## 🗺️ Backlog / futuro (fuera del MVP)
 - [ ] Migrar storage de Discord a una DB real (SQLite → Postgres/Firebase).
