@@ -53,6 +53,12 @@ class Settings:
     storage_channel_id: int
     ranking_channel_id: int
     general_channel_id: int
+    dev_role_id: int | None
+    admin_channel_id: int | None
+    player_role_id: int | None
+    lol_role_id: int | None
+    match_notify_channel_id: int | None
+    match_poll_interval_minutes: int
     # Riot
     riot_api_key: str
     riot_platform: str
@@ -62,8 +68,11 @@ class Settings:
     # Tiempo / scheduler
     timezone: str
     daily_post_hour: int
+    daily_post_minute: int
     # Logging
     log_level: int
+    log_channel_id: int | None
+    log_channel_level: int
 
     @classmethod
     def load(cls) -> "Settings":
@@ -76,17 +85,37 @@ class Settings:
         if not 0 <= hour <= 23:
             raise ConfigError("DAILY_POST_HOUR debe estar entre 0 y 23.")
 
+        minute = int(os.getenv("DAILY_POST_MINUTE", "0"))
+        if not 0 <= minute <= 59:
+            raise ConfigError("DAILY_POST_MINUTE debe estar entre 0 y 59.")
+
+        poll_minutes = int(os.getenv("MATCH_POLL_INTERVAL_MINUTES", "5"))
+        if poll_minutes < 1:
+            raise ConfigError("MATCH_POLL_INTERVAL_MINUTES debe ser >= 1.")
+
+        log_channel_level_name = os.getenv("LOG_CHANNEL_LEVEL", "WARNING").upper()
+        log_channel_level = getattr(logging, log_channel_level_name, logging.WARNING)
+
         return cls(
             discord_token=_require("DISCORD_TOKEN"),
             guild_id=_optional_int("DISCORD_GUILD_ID"),
             storage_channel_id=_require_int("STORAGE_CHANNEL_ID"),
             ranking_channel_id=_require_int("RANKING_CHANNEL_ID"),
             general_channel_id=_require_int("GENERAL_CHANNEL_ID"),
+            dev_role_id=_optional_int("DEV_ROLE_ID"),
+            admin_channel_id=_optional_int("ADMIN_CHANNEL_ID"),
+            player_role_id=_optional_int("PLAYER_ROLE_ID"),
+            lol_role_id=_optional_int("LOL_ROLE_ID"),
+            match_notify_channel_id=_optional_int("MATCH_NOTIFY_CHANNEL_ID"),
+            match_poll_interval_minutes=poll_minutes,
             riot_api_key=_require("RIOT_API_KEY"),
             riot_platform=os.getenv("RIOT_PLATFORM", "la2"),
             riot_region=os.getenv("RIOT_REGION", "americas"),
             scoring_config_path=os.getenv("SCORING_CONFIG_PATH", "config/scoring.yaml"),
             timezone=os.getenv("TIMEZONE", "America/Argentina/Buenos_Aires"),
             daily_post_hour=hour,
+            daily_post_minute=minute,
             log_level=log_level,
+            log_channel_id=_optional_int("LOG_CHANNEL_ID"),
+            log_channel_level=log_channel_level,
         )

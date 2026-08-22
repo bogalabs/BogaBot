@@ -79,6 +79,8 @@ class MatchRecord:
     assists: int
     damage_to_champions: int
     vision_score: int
+    opponent_champion: str = ""  # rival de línea (mismo position, equipo contrario) o "" si no aplica
+    cs: int = 0  # farm: minions de línea + monstruos de jungla
 
     def is_troll_game(self) -> bool:
         # KDA menor a 0.5, perdieron por surrender antes de los 20 min (1200 segs)
@@ -107,6 +109,7 @@ class MatchRecord:
             "game_mode": self.game_mode,
             "champion": self.champion,
             "position": self.position,
+            "opponent_champion": self.opponent_champion,
             "win": self.win,
             "game_ended_in_surrender": self.game_ended_in_surrender,
             "kills": self.kills,
@@ -114,6 +117,7 @@ class MatchRecord:
             "assists": self.assists,
             "damage_to_champions": self.damage_to_champions,
             "vision_score": self.vision_score,
+            "cs": self.cs,
         }
 
     @classmethod
@@ -130,6 +134,7 @@ class MatchRecord:
             game_mode=d.get("game_mode", ""),
             champion=d["champion"],
             position=d.get("position", ""),
+            opponent_champion=d.get("opponent_champion", ""),
             win=bool(d["win"]),
             game_ended_in_surrender=bool(d.get("game_ended_in_surrender", False)),
             kills=int(d["kills"]),
@@ -137,6 +142,7 @@ class MatchRecord:
             assists=int(d["assists"]),
             damage_to_champions=int(d["damage_to_champions"]),
             vision_score=int(d["vision_score"]),
+            cs=int(d.get("cs", 0)),
         )
 
 
@@ -153,6 +159,7 @@ class PlayerStats:
     assists: int = 0
     damage_to_champions: int = 0
     vision_score: int = 0
+    cs: int = 0
     duration_seconds: int = 0
     champions: list[str] = field(default_factory=list)
 
@@ -165,6 +172,7 @@ class PlayerStats:
         self.assists += m.assists
         self.damage_to_champions += m.damage_to_champions
         self.vision_score += m.vision_score
+        self.cs += m.cs
         self.duration_seconds += m.game_duration_seconds
         self.champions.append(m.champion)
 
@@ -203,8 +211,46 @@ class PlayerStats:
         return self.vision_score / self.games if self.games else 0.0
 
     @property
+    def avg_cs(self) -> float:
+        return self.cs / self.games if self.games else 0.0
+
+    @property
+    def cs_per_min(self) -> float:
+        minutes = self.duration_seconds / 60
+        return self.cs / minutes if minutes else 0.0
+
+    @property
     def games_played(self) -> float:
         return float(self.games)
+
+
+@dataclass
+class MatchParticipant:
+    """Un jugador dentro de una partida completa (los 10), para el aviso "en
+    vivo" de partida terminada. No se persiste: se arma al vuelo con el JSON
+    de match-v5 (ver `riot/mapper.py::map_match_summary`)."""
+
+    discord_id: int | None  # None si no está vinculado al grupo
+    display_name: str  # Riot ID, para mostrar cuando no hay discord_id
+    champion: str
+    team_id: int
+    position: str  # TOP/JUNGLE/MIDDLE/BOTTOM/UTILITY o "" (ej. ARAM)
+    win: bool
+    kills: int
+    deaths: int
+    assists: int
+    cs: int
+
+
+@dataclass
+class MatchSummary:
+    """Resumen de una partida completa (10 jugadores), para el aviso "en
+    vivo". No se persiste (ver `MatchParticipant`)."""
+
+    match_id: str
+    queue_id: int
+    game_duration_seconds: int
+    participants: list[MatchParticipant]
 
 
 @dataclass

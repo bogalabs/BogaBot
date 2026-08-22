@@ -1,0 +1,43 @@
+name: Deploy
+
+# Corre en cada push a main: primero testea, y si pasa, despliega en la VPS.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}  # permite disparar el deploy a mano desde la pestaña Actions
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Correr tests
+        run: python -m unittest discover -s tests -v
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Desplegar en la VPS por SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.VPS_DEPLOY_PATH }}
+            git fetch origin main
+            git reset --hard origin/main
+            source venv/bin/activate
+            pip install -r requirements.txt
+            sudo systemctl restart bogabot
