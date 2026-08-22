@@ -73,6 +73,17 @@ _Última actualización: 2026-08-20 (3)_
       `CRITICAL` (con cooldown de 3h) que llega a `boga-bot-log` — 2026-08-21
 - [x] Script de autorun local `scripts/run_bot.ps1` (consola visible + log
       en `logs/`) — 2026-08-21
+- [x] Ranking de trolleadas y papelones (`feature/troll-ranking`, PR #2):
+      nuevos campos `participant_id` y `game_ended_in_surrender` en
+      `MatchRecord` + `MatchRecord.is_troll_game()` (KDA < 0.5, FF antes de
+      los 20 min) e `is_papelon()` (derrota antes de los 25 min). Cada
+      corrida del scheduler detecta partidas trolleadas/papelón entre las
+      últimas 48hs y avisa en `RANKING_CHANNEL_ID` (trolls) y
+      `GENERAL_CHANNEL_ID` (papelones, nuevo canal en `.env`); hay un
+      ranking histórico de trolls (`all_time_troll_counts` +
+      `build_troll_ranking_embed`) y el aviso de troll consulta el timeline
+      de la partida (`RiotClient.get_match_timeline`, nuevo) para mostrar en
+      qué minuto murió por primera vez — 2026-08-22
 
 ## 🚧 En progreso
 - [ ] _(nada activo)_

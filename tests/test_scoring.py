@@ -23,10 +23,10 @@ def _stats(discord_id, name, games, wins, kills, deaths, assists):
     for _ in range(games):
         s.add(
             MatchRecord(
-                match_id=f"m{discord_id}", puuid="p", discord_id=discord_id, game_name=name,
+                match_id=f"m{discord_id}", puuid="p", participant_id=1, discord_id=discord_id, game_name=name,
                 game_creation=datetime.now(timezone.utc), game_duration_seconds=1800,
                 queue_id=420, game_mode="CLASSIC", champion="Ahri", position="MIDDLE",
-                win=(wins > 0), kills=kills, deaths=deaths, assists=assists,
+                win=(wins > 0), game_ended_in_surrender=False, kills=kills, deaths=deaths, assists=assists,
                 damage_to_champions=20000, vision_score=20,
             )
         )
@@ -71,10 +71,11 @@ class TestInMemoryStorage(unittest.TestCase):
         async def scenario():
             store = InMemoryStorage()
             rec = MatchRecord(
-                match_id="LA2_1", puuid="p1", discord_id=1, game_name="X",
+                match_id="LA2_1", puuid="p1", participant_id=1, discord_id=1, game_name="X",
                 game_creation=datetime.now(timezone.utc), game_duration_seconds=1500,
                 queue_id=420, game_mode="CLASSIC", champion="Ahri", position="MIDDLE",
-                win=True, kills=1, deaths=1, assists=1, damage_to_champions=1, vision_score=1,
+                win=True, game_ended_in_surrender=False, kills=1, deaths=1, assists=1,
+                damage_to_champions=1, vision_score=1,
             )
             await store.save_match(rec)
             await store.save_match(rec)  # duplicado

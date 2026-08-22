@@ -120,3 +120,7 @@ class RiotClient:
     async def get_match(self, match_id: str) -> dict:
         url = f"{self._base()}/lol/match/v5/matches/{match_id}"
         return await self._get(url)
+
+    async def get_match_timeline(self, match_id: str) -> dict:
+        url = f"{self._base()}/lol/match/v5/matches/{match_id}/timeline"
+        return await self._get(url)

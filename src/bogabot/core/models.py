@@ -63,6 +63,7 @@ class MatchRecord:
 
     match_id: str
     puuid: str
+    participant_id: int
     discord_id: int
     game_name: str  # denormalizado para poder mostrar nombre aunque se desvincule
     game_creation: datetime
@@ -72,6 +73,7 @@ class MatchRecord:
     champion: str
     position: str  # TOP/JUNGLE/MIDDLE/BOTTOM/UTILITY o "" (ej. ARAM)
     win: bool
+    game_ended_in_surrender: bool
     kills: int
     deaths: int
     assists: int
@@ -79,6 +81,16 @@ class MatchRecord:
     vision_score: int
     opponent_champion: str = ""  # rival de línea (mismo position, equipo contrario) o "" si no aplica
     cs: int = 0  # farm: minions de línea + monstruos de jungla
+
+    def is_troll_game(self) -> bool:
+        # KDA menor a 0.5, perdieron por surrender antes de los 20 min (1200 segs)
+        kda = (self.kills + self.assists) / max(self.deaths, 1)
+        is_early_ff = self.game_duration_seconds < 1200 and self.game_ended_in_surrender
+        return kda < 0.5 and is_early_ff and not self.win
+
+    def is_papelon(self) -> bool:
+        # Pierden la partida antes de los 25 minutos (1500 segundos)
+        return self.game_duration_seconds < 1500 and not self.win
 
     @property
     def dedup_key(self) -> str:
@@ -88,6 +100,7 @@ class MatchRecord:
         return {
             "match_id": self.match_id,
             "puuid": self.puuid,
+            "participant_id": self.participant_id,
             "discord_id": self.discord_id,
             "game_name": self.game_name,
             "game_creation": _iso(self.game_creation),
@@ -98,6 +111,7 @@ class MatchRecord:
             "position": self.position,
             "opponent_champion": self.opponent_champion,
             "win": self.win,
+            "game_ended_in_surrender": self.game_ended_in_surrender,
             "kills": self.kills,
             "deaths": self.deaths,
             "assists": self.assists,
@@ -111,6 +125,7 @@ class MatchRecord:
         return cls(
             match_id=d["match_id"],
             puuid=d["puuid"],
+            participant_id=int(d.get("participant_id", 0)),
             discord_id=int(d["discord_id"]),
             game_name=d.get("game_name", ""),
             game_creation=_parse_iso(d["game_creation"]),
@@ -121,6 +136,7 @@ class MatchRecord:
             position=d.get("position", ""),
             opponent_champion=d.get("opponent_champion", ""),
             win=bool(d["win"]),
+            game_ended_in_surrender=bool(d.get("game_ended_in_surrender", False)),
             kills=int(d["kills"]),
             deaths=int(d["deaths"]),
             assists=int(d["assists"]),

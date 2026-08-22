@@ -52,6 +52,7 @@ class Settings:
     guild_id: int | None
     storage_channel_id: int
     ranking_channel_id: int
+    general_channel_id: int
     dev_role_id: int | None
     admin_channel_id: int | None
     player_role_id: int | None
@@ -100,6 +101,7 @@ class Settings:
             guild_id=_optional_int("DISCORD_GUILD_ID"),
             storage_channel_id=_require_int("STORAGE_CHANNEL_ID"),
             ranking_channel_id=_require_int("RANKING_CHANNEL_ID"),
+            general_channel_id=_require_int("GENERAL_CHANNEL_ID"),
             dev_role_id=_optional_int("DEV_ROLE_ID"),
             admin_channel_id=_optional_int("ADMIN_CHANNEL_ID"),
             player_role_id=_optional_int("PLAYER_ROLE_ID"),
