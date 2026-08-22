@@ -48,3 +48,7 @@ class MatchRepository(ABC):
     @abstractmethod
     async def get_matches(self, since: datetime, until: datetime) -> list[MatchRecord]:
         """Todas las partidas cuya creación cae en [since, until)."""
+
+    @abstractmethod
+    async def get_all_matches(self) -> list[MatchRecord]:
+        """Todas las partidas almacenadas."""

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from bogabot.core.models import MatchRecord
 from bogabot.core.timeutils import start_of_week, to_epoch_seconds
 from bogabot.riot.client import RiotClient
 from bogabot.riot.mapper import map_match
@@ -31,17 +32,17 @@ class IngestService:
         self._matches = matches
         self._settings = settings
 
-    async def ingest_all(self) -> int:
-        """Ingiere partidas nuevas de todos los jugadores. Devuelve cuántas
-        partidas-jugador se guardaron."""
+    async def ingest_all(self) -> list[MatchRecord]:
+        """Ingiere partidas nuevas de todos los jugadores. Devuelve la lista
+        de partidas-jugador que se guardaron."""
         links = await self._links.get_all_links()
         if not links:
             log.info("No hay jugadores vinculados; nada para ingerir.")
-            return 0
+            return []
 
         week_start = start_of_week(self._settings.timezone)
         start_epoch = to_epoch_seconds(week_start)
-        total_new = 0
+        new_matches: list[MatchRecord] = []
 
         for link in links:
             try:
@@ -62,7 +63,7 @@ class IngestService:
                 if record is None:
                     continue  # remake / jugador ausente
                 await self._matches.save_match(record)
-                total_new += 1
+                new_matches.append(record)
 
-        log.info("Ingesta completa: %d partidas-jugador nuevas.", total_new)
-        return total_new
+        log.info("Ingesta completa: %d partidas-jugador nuevas.", len(new_matches))
+        return new_matches

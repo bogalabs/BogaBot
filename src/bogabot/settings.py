@@ -52,6 +52,7 @@ class Settings:
     guild_id: int | None
     storage_channel_id: int
     ranking_channel_id: int
+    general_channel_id: int
     # Riot
     riot_api_key: str
     riot_platform: str
@@ -80,6 +81,7 @@ class Settings:
             guild_id=_optional_int("DISCORD_GUILD_ID"),
             storage_channel_id=_require_int("STORAGE_CHANNEL_ID"),
             ranking_channel_id=_require_int("RANKING_CHANNEL_ID"),
+            general_channel_id=_require_int("GENERAL_CHANNEL_ID"),
             riot_api_key=_require("RIOT_API_KEY"),
             riot_platform=os.getenv("RIOT_PLATFORM", "la2"),
             riot_region=os.getenv("RIOT_REGION", "americas"),

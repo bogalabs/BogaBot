@@ -41,6 +41,7 @@ def map_match(data: dict, puuid: str, discord_id: int) -> MatchRecord | None:
     return MatchRecord(
         match_id=match_id,
         puuid=puuid,
+        participant_id=int(participant.get("participantId", 0)),
         discord_id=discord_id,
         game_name=participant.get("riotIdGameName") or participant.get("summonerName", ""),
         game_creation=from_epoch_millis(int(info.get("gameCreation", 0))),
@@ -50,6 +51,7 @@ def map_match(data: dict, puuid: str, discord_id: int) -> MatchRecord | None:
         champion=participant.get("championName", ""),
         position=participant.get("teamPosition", ""),
         win=bool(participant.get("win", False)),
+        game_ended_in_surrender=bool(participant.get("gameEndedInSurrender", False)),
         kills=int(participant.get("kills", 0)),
         deaths=int(participant.get("deaths", 0)),
         assists=int(participant.get("assists", 0)),

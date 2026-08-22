@@ -38,3 +38,6 @@ class InMemoryStorage(LinkRepository, MatchRepository):
 
     async def get_matches(self, since: datetime, until: datetime) -> list[MatchRecord]:
         return [m for m in self._matches.values() if since <= m.game_creation < until]
+
+    async def get_all_matches(self) -> list[MatchRecord]:
+        return list(self._matches.values())

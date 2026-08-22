@@ -56,6 +56,15 @@ class RankingService:
         prev_week_start = this_week_start - timedelta(days=7)
         return await self._rows_for_window(prev_week_start, this_week_start)
 
+    async def all_time_troll_counts(self) -> list[tuple[str, int]]:
+        """Devuelve la cantidad histórica de partidas troll por jugador, ordenado descendente."""
+        records = await self._matches.get_all_matches()
+        counts: dict[str, int] = Counter()
+        for m in records:
+            if m.is_troll_game():
+                counts[m.game_name] += 1
+        return counts.most_common()
+
     # --- Embeds ------------------------------------------------------------
     def build_ranking_embed(self, rows: list[RankingRow], title: str) -> discord.Embed:
         embed = discord.Embed(title=title, color=discord.Color.gold())
@@ -104,4 +113,24 @@ class RankingService:
                 for r in bottom
             )
             embed.add_field(name="🤡 TROLLS", value=trolls, inline=False)
+        return embed
+
+    def build_troll_ranking_embed(self, troll_counts: list[tuple[str, int]]) -> discord.Embed:
+        embed = discord.Embed(
+            title="🤡 Ranking Histórico de Trolls 🤡",
+            color=discord.Color.red(),
+            description="Cantidad total de partidas trolleadas (KDA < 0.5 y FF < 20 min)."
+        )
+        if not troll_counts:
+            embed.description = "Nadie ha trolleado todavía. ¡Milagro! 🙌"
+            return embed
+        
+        podium = ""
+        for i, (name, count) in enumerate(troll_counts):
+            rank = i + 1
+            medal = MEDALS.get(rank, f"#{rank}")
+            times = "vez" if count == 1 else "veces"
+            podium += f"{medal} **{name}**: {count} {times}\n"
+            
+        embed.add_field(name="Podio", value=podium, inline=False)
         return embed
