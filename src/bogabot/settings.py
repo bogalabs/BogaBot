@@ -1,4 +1,4 @@
-"""Carga y valida la configuración desde variables de entorno (.env).
+"""Carga y valida la configuración desde variables de entorno (.env.<ambiente>).
 
 Toda la app depende de este objeto `Settings`. Nada de rutas ni valores
 hardcodeados: si falta una variable requerida, el bot falla al arrancar con
@@ -9,8 +9,12 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_VALID_ENVIRONMENTS = ("staging", "production")
 
 
 class ConfigError(RuntimeError):
@@ -45,8 +49,36 @@ def _optional_int(name: str) -> int | None:
         raise ConfigError(f"La variable '{name}' debe ser un número entero, no '{raw}'.") from exc
 
 
+def _load_env_file() -> str:
+    """Carga el archivo .env.<BOGABOT_ENV> correspondiente al ambiente.
+
+    Default 'staging': si alguien se olvida de setear BOGABOT_ENV, el bot
+    arranca contra el ambiente de prueba y no contra producción por accidente.
+    Devuelve el nombre del ambiente cargado.
+    """
+    env_name = os.getenv("BOGABOT_ENV", "staging").strip().lower()
+    if env_name not in _VALID_ENVIRONMENTS:
+        raise ConfigError(
+            f"BOGABOT_ENV='{env_name}' inválido. Usá uno de: "
+            f"{', '.join(_VALID_ENVIRONMENTS)}."
+        )
+
+    env_path = _PROJECT_ROOT / f".env.{env_name}"
+    if not env_path.exists():
+        raise ConfigError(
+            f"No encontré '{env_path.name}' en la raíz del proyecto. "
+            f"Creá ese archivo a partir de '.env.example' (BOGABOT_ENV actual: "
+            f"'{env_name}')."
+        )
+
+    load_dotenv(dotenv_path=env_path, override=True)
+    return env_name
+
+
 @dataclass(frozen=True)
 class Settings:
+    # Ambiente
+    environment: str
     # Discord
     discord_token: str
     guild_id: int | None
@@ -76,7 +108,7 @@ class Settings:
 
     @classmethod
     def load(cls) -> "Settings":
-        load_dotenv()  # lee .env de la raíz del proyecto si existe
+        env_name = _load_env_file()
 
         level_name = os.getenv("LOG_LEVEL", "INFO").upper()
         log_level = getattr(logging, level_name, logging.INFO)
@@ -97,6 +129,7 @@ class Settings:
         log_channel_level = getattr(logging, log_channel_level_name, logging.WARNING)
 
         return cls(
+            environment=env_name,
             discord_token=_require("DISCORD_TOKEN"),
             guild_id=_optional_int("DISCORD_GUILD_ID"),
             storage_channel_id=_require_int("STORAGE_CHANNEL_ID"),

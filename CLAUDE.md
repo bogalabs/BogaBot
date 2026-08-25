@@ -20,8 +20,13 @@ calcular un puntaje configurable por jugador → publicar rankings en Discord.
 1. **Nunca hardcodear secretos ni rutas.** Todo sale de variables de entorno
    vía `settings.py` (que lee `.env`). El código no debe asumir que corre en
    una máquina puntual.
-2. **`.env` nunca se commitea** (está en `.gitignore`). Cambios de config →
-   actualizar también `.env.example` documentando la variable.
+2. **Ningún `.env.*` real se commitea** (están en `.gitignore`; solo
+   `.env.example` se trackea). El ambiente (`staging`/`production`) se elige
+   por la variable de shell `BOGABOT_ENV`, que hace que `settings.py` cargue
+   `.env.staging` o `.env.production` — default `staging` si no está seteada,
+   para no correr producción por accidente. Ver `README.md` →
+   "Ambientes: staging vs. production". Cambios de config → actualizar
+   también `.env.example` documentando la variable nueva.
 3. **El resto de la app no sabe de dónde salen los datos.** Todo pasa por las
    interfaces de `storage/base.py` (`LinkRepository`, `MatchRepository`).
    Nunca importar `DiscordChannelStorage` fuera de `bot.py`.

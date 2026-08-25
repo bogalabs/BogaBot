@@ -57,12 +57,15 @@ venv\Scripts\activate
 pip install -r requirements.txt
 
 # 3. Configuración
-copy .env.example .env
-# Editá .env y completá los valores (ver guía abajo).
+copy .env.example .env.staging
+# Editá .env.staging y completá los valores (ver guía abajo).
 
-# 4. Correr
+# 4. Correr (BOGABOT_ENV default = staging si no lo seteás)
 python run.py
 ```
+
+Ver [Ambientes: staging vs. production](#ambientes-staging-vs-production) para
+correr contra producción o entender cómo elige el bot qué archivo cargar.
 
 ## Guía rápida: correr tu propio bot en tu propio server
 
@@ -119,13 +122,14 @@ seguido a mano) o pedí una **Production Key** si querés algo estable. Va en
 `RIOT_API_KEY`. Ajustá también `RIOT_PLATFORM`/`RIOT_REGION` según la región
 de tu grupo (ver tabla de variables abajo).
 
-### 6. Completar el `.env` y correr
-Con todos los IDs y tokens, completá `.env` (ver la tabla completa de
-variables más abajo) y corré `python run.py`. Al primer arranque el bot
-registra los slash commands en tu server (instantáneo si pusiste
-`DISCORD_GUILD_ID`).
+### 6. Completar el `.env.staging` (o `.env.production`) y correr
+Con todos los IDs y tokens, completá el archivo del ambiente que corresponda
+(ver la tabla completa de variables más abajo, y la sección de
+[ambientes](#ambientes-staging-vs-production)) y corré `python run.py`. Al
+primer arranque el bot registra los slash commands en tu server (instantáneo
+si pusiste `DISCORD_GUILD_ID`).
 
-### Variables de entorno (.env)
+### Variables de entorno (.env.staging / .env.production)
 
 | Variable | Descripción |
 |---|---|
@@ -151,6 +155,51 @@ registra los slash commands en tu server (instantáneo si pusiste
   y **leer el historial** del canal de storage.
 - Al invitarlo, activá el scope `applications.commands` (para slash commands).
 - No requiere intents privilegiados.
+
+## Ambientes: staging vs. production
+
+El bot corre en dos ambientes posibles, elegidos por la variable de entorno
+**`BOGABOT_ENV`** (la seteás en la terminal/shell antes de correr `python
+run.py`, no dentro del `.env`):
+
+| `BOGABOT_ENV` | Archivo que carga | Uso |
+|---|---|---|
+| _(sin setear)_ o `staging` | `.env.staging` | Default. Desarrollo y pruebas del equipo. |
+| `production` | `.env.production` | El bot real, en el server real del grupo. |
+
+El default es **staging** a propósito: si te olvidás de setear la variable,
+nunca corrés contra producción por accidente. Ninguno de los dos archivos se
+commitea (están en `.gitignore`); `.env.production` solo lo tiene quien
+administra el bot en vivo.
+
+Recomendado: **staging apunta a otro bot de Discord (otro token, otra
+Application) invitado a otro server**, no al mismo. El storage del bot vive
+en canales de Discord (`STORAGE_CHANNEL_ID`), así que si staging y
+production comparten server/canales terminás mezclando datos de prueba con
+datos reales del grupo.
+
+Formas de correrlo:
+
+```powershell
+# Local, directo (default staging)
+python run.py
+
+# Local, explícito
+$env:BOGABOT_ENV = "staging"
+python run.py
+
+# Con el script (levanta consola + log en logs\<ambiente>\)
+.\scripts\run_bot.ps1                              # staging
+.\scripts\run_bot.ps1 -Environment production       # pide confirmación
+.\scripts\run_bot.ps1 -Environment production -Force  # sin confirmar (autorun)
+```
+
+**Importante (por ahora corremos todo local, no en VPS):** no levantar dos
+instancias del bot al mismo tiempo apuntando al mismo ambiente/server — te
+respondería el comando dos veces. Si dos personas quieren tocar código a la
+vez, cada una con su propio server de prueba personal (su propio
+`.env.staging`), y validar contra el staging "oficial" del equipo antes de
+mergear a `main`.
 
 ## Comandos
 - `/link <Nombre#TAG>` — vincula tu cuenta de Riot (valida contra la API).
