@@ -7,7 +7,7 @@ opcionalmente, cada pocos minutos para avisar en vivo), calcula un puntaje
 configurable por jugador y publica rankings (diario y "Trolls y Pros" semanal)
 en Discord.
 
-## Arquitectura (por capas, cada una reemplazable)
+## Arquitectura (por capas, cada una reemplazable) 
 
 ```
 run.py                      # entrypoint: python run.py
