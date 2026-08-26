@@ -83,10 +83,15 @@ class MatchRecord:
     cs: int = 0  # farm: minions de línea + monstruos de jungla
 
     def is_troll_game(self) -> bool:
-        # KDA menor a 0.5, perdieron por surrender antes de los 20 min (1200 segs)
+        """Troleada: KDA menor a 0.5, sin importar si ganaste o perdiste.
+        Si jugaste pésimo es troll aunque tu equipo haya ganado."""
         kda = (self.kills + self.assists) / max(self.deaths, 1)
-        is_early_ff = self.game_duration_seconds < 1200 and self.game_ended_in_surrender
-        return kda < 0.5 and is_early_ff and not self.win
+        return kda < 0.5
+
+    def is_carry_game(self) -> bool:
+        """Carreada: ganaste con KDA >= 5 (ej. 10/2/5 = 7.5 → carry)."""
+        kda = (self.kills + self.assists) / max(self.deaths, 1)
+        return self.win and kda >= 5.0
 
     def is_papelon(self) -> bool:
         # Pierden la partida antes de los 25 minutos (1500 segundos)
@@ -160,6 +165,8 @@ class PlayerStats:
     damage_to_champions: int = 0
     vision_score: int = 0
     cs: int = 0
+    carry_games: int = 0
+    troll_games: int = 0
     duration_seconds: int = 0
     champions: list[str] = field(default_factory=list)
 
@@ -173,6 +180,10 @@ class PlayerStats:
         self.damage_to_champions += m.damage_to_champions
         self.vision_score += m.vision_score
         self.cs += m.cs
+        if m.is_carry_game():
+            self.carry_games += 1
+        if m.is_troll_game():
+            self.troll_games += 1
         self.duration_seconds += m.game_duration_seconds
         self.champions.append(m.champion)
 
@@ -222,6 +233,16 @@ class PlayerStats:
     @property
     def games_played(self) -> float:
         return float(self.games)
+
+    @property
+    def carry_rate(self) -> float:
+        """Proporción de partidas carreadas (0.0 a 1.0). Mide calidad, no volumen."""
+        return self.carry_games / self.games if self.games else 0.0
+
+    @property
+    def troll_rate(self) -> float:
+        """Proporción de partidas troleadas (0.0 a 1.0). Mide calidad, no volumen."""
+        return self.troll_games / self.games if self.games else 0.0
 
 
 @dataclass

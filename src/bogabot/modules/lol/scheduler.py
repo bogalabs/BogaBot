@@ -103,6 +103,7 @@ class LolScheduler(commands.Cog):
         now = datetime.now(timezone.utc)
         
         found_troll = False
+        found_carry = False
         for match in new_matches:
             # Ignorar partidas antiguas (más de 48 horas de antigüedad)
             if (now - match.game_creation) > timedelta(hours=48):
@@ -127,14 +128,28 @@ class LolScheduler(commands.Cog):
                     log.warning("No se pudo obtener el timeline para %s: %s", match.match_id, e)
 
                 kda_str = f"{match.kills}/{match.deaths}/{match.assists}"
+                kda = (match.kills + match.assists) / max(match.deaths, 1)
+                result = "y encima ganó 🤦" if match.win else "y perdió"
                 msg = (
                     f"🚨 **¡ALERTA TROLL!** 🚨\n"
-                    f"<@{match.discord_id}> ({match.game_name}) trolleo una partida con {match.champion} "
-                    f"(KDA: {kda_str}) y tiraron FF antes de los 20 min.{first_death_minute_str}\n"
+                    f"<@{match.discord_id}> ({match.game_name}) trolleó con {match.champion} "
+                    f"(KDA: {kda_str} = {kda:.2f}) {result}.{first_death_minute_str}\n"
                     f"¡Vergüenza!"
                 )
                 await channel.send(msg)
                 found_troll = True
+
+            elif match.is_carry_game():
+                kda = (match.kills + match.assists) / max(match.deaths, 1)
+                kda_str = f"{match.kills}/{match.deaths}/{match.assists}"
+                msg = (
+                    f"🔥 **¡CARREADA!** 🔥\n"
+                    f"<@{match.discord_id}> ({match.game_name}) se puso el equipo al hombro con {match.champion} "
+                    f"(KDA: {kda_str} = {kda:.1f}) y ganó la partida.\n"
+                    f"¡Bestia!"
+                )
+                await channel.send(msg)
+                found_carry = True
                 
             elif match.is_papelon() and isinstance(general_channel, discord.TextChannel):
                 msg_papelon = (
@@ -145,7 +160,13 @@ class LolScheduler(commands.Cog):
 
         if found_troll:
             troll_counts = await self.bot.ranking.all_time_troll_counts()
-            await channel.send(embed=self.bot.ranking.build_troll_ranking_embed(troll_counts))
+            embed = self.bot.ranking.build_troll_ranking_embed(troll_counts)
+            await self._send_and_delete_previous(channel, embed, "🤡 Ranking Histórico de Trolls 🤡")
+
+        if found_carry:
+            carry_counts = await self.bot.ranking.all_time_carry_counts()
+            embed = self.bot.ranking.build_carry_ranking_embed(carry_counts)
+            await self._send_and_delete_previous(channel, embed, "🔥 Ranking Histórico de Carries 🔥")
 
         daily_rows = await self.bot.ranking.daily_rows()
         await channel.send(embed=self.bot.ranking.build_ranking_embed(daily_rows, "🏆 Ranking de hoy"))
@@ -157,6 +178,23 @@ class LolScheduler(commands.Cog):
     @daily_job.before_loop
     async def _before(self) -> None:
         await self.bot.wait_until_ready()
+
+    async def _send_and_delete_previous(self, channel: discord.TextChannel | discord.Thread | discord.abc.GuildChannel, embed: discord.Embed, title: str) -> None:
+        """Busca el último mensaje con el mismo título y lo borra antes de mandar el nuevo, para evitar spam."""
+        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            await channel.send(embed=embed)
+            return
+            
+        try:
+            async for msg in channel.history(limit=50):
+                if msg.author == self.bot.user and msg.embeds:
+                    if msg.embeds[0].title == title:
+                        await msg.delete()
+                        break
+        except Exception as e:
+            log.warning("No se pudo borrar el mensaje anterior de '%s': %s", title, e)
+            
+        await channel.send(embed=embed)
 
     @tasks.loop(minutes=5)  # el intervalo real se fija en cog_load con change_interval
     async def notify_job(self) -> None:
