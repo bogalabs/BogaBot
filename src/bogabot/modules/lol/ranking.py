@@ -12,7 +12,7 @@ import discord
 
 from bogabot.core.models import PlayerStats, RankingRow
 from bogabot.core.timeutils import now, start_of_day, start_of_week
-from bogabot.riot.mapper import RANKED_FLEX_QUEUE_ID
+from bogabot.riot.mapper import RANKED_FLEX_QUEUE_ID, RANKED_QUEUE_IDS
 from bogabot.scoring.engine import ScoringEngine
 from bogabot.settings import Settings
 from bogabot.storage.base import MatchRepository
@@ -32,11 +32,11 @@ class RankingService:
         self._settings = settings
 
     async def _rows_for_window(
-        self, since: datetime, until: datetime, queue_id: int | None = None
+        self, since: datetime, until: datetime, queue_ids: frozenset[int] | None = None
     ) -> list[RankingRow]:
         records = await self._matches.get_matches(since, until)
-        if queue_id is not None:
-            records = [m for m in records if m.queue_id == queue_id]
+        if queue_ids is not None:
+            records = [m for m in records if m.queue_id in queue_ids]
         by_player: dict[int, PlayerStats] = {}
         for m in records:
             stats = by_player.get(m.discord_id)
@@ -48,11 +48,11 @@ class RankingService:
 
     async def daily_rows(self) -> list[RankingRow]:
         tz = self._settings.timezone
-        return await self._rows_for_window(start_of_day(tz), now(tz))
+        return await self._rows_for_window(start_of_day(tz), now(tz), queue_ids=RANKED_QUEUE_IDS)
 
     async def weekly_rows(self) -> list[RankingRow]:
         tz = self._settings.timezone
-        return await self._rows_for_window(start_of_week(tz), now(tz))
+        return await self._rows_for_window(start_of_week(tz), now(tz), queue_ids=RANKED_QUEUE_IDS)
 
     async def previous_week_rows(self) -> list[RankingRow]:
         """Ranking de la semana que acaba de cerrar (para el recap del lunes).
@@ -61,7 +61,10 @@ class RankingService:
         tz = self._settings.timezone
         this_week_start = start_of_week(tz)
         prev_week_start = this_week_start - timedelta(days=7)
-        return await self._rows_for_window(prev_week_start, this_week_start, queue_id=RANKED_FLEX_QUEUE_ID)
+        return await self._rows_for_window(
+            prev_week_start, this_week_start,
+            queue_ids=frozenset({RANKED_FLEX_QUEUE_ID}),
+        )
 
     async def all_time_troll_counts(self) -> list[tuple[str, int]]:
         """Devuelve la cantidad histórica de partidas troll por jugador, ordenado descendente."""
@@ -72,10 +75,19 @@ class RankingService:
                 counts[m.game_name] += 1
         return counts.most_common()
 
+    async def all_time_carry_counts(self) -> list[tuple[str, int]]:
+        """Devuelve la cantidad histórica de partidas carreadas por jugador, ordenado descendente."""
+        records = await self._matches.get_all_matches()
+        counts: dict[str, int] = Counter()
+        for m in records:
+            if m.is_carry_game():
+                counts[m.game_name] += 1
+        return counts.most_common()
+
     # --- Embeds ------------------------------------------------------------
     def build_ranking_embed(self, rows: list[RankingRow], title: str) -> discord.Embed:
         embed = discord.Embed(title=title, color=discord.Color.gold())
-        embed.set_footer(text="Solo cuentan las partidas jugadas con al menos otro vinculado del grupo.")
+        embed.set_footer(text="Solo cuentan partidas Ranked (Flex/Solo) jugadas con al menos otro vinculado del grupo.")
         if not rows:
             embed.description = "Todavía no hay partidas registradas en esta ventana. 🦗"
             return embed
@@ -84,12 +96,15 @@ class RankingService:
             s = row.stats
             fav_champ = Counter(s.champions).most_common(1)[0][0] if s.champions else "?"
             medal = MEDALS.get(row.rank, f"#{row.rank}")
+            carry_troll = ""
+            if s.carry_games or s.troll_games:
+                carry_troll = f"  ·  🔥{s.carry_games} carries  ·  🤡{s.troll_games} trolls"
             value = (
                 f"**Puntaje:** {row.score}\n"
                 f"{s.wins}V / {s.losses}D  ·  KDA {s.kda:.2f} "
                 f"({s.avg_kills:.1f}/{s.avg_deaths:.1f}/{s.avg_assists:.1f})\n"
                 f"Daño/min {s.damage_per_min:.0f}  ·  Visión {s.avg_vision:.0f}  ·  Farm/min {s.cs_per_min:.1f}\n"
-                f"{s.games} partidas  ·  🏆 {fav_champ}"
+                f"{s.games} partidas  ·  🏆 {fav_champ}{carry_troll}"
             )
             embed.add_field(name=f"{medal} {row.display_name}", value=value, inline=False)
         return embed
@@ -130,7 +145,7 @@ class RankingService:
         embed = discord.Embed(
             title="🤡 Ranking Histórico de Trolls 🤡",
             color=discord.Color.red(),
-            description="Cantidad total de partidas trolleadas (KDA < 0.5 y FF < 20 min)."
+            description="Cantidad total de partidas trolleadas (KDA < 0.5, gane o pierda)."
         )
         if not troll_counts:
             embed.description = "Nadie ha trolleado todavía. ¡Milagro! 🙌"
@@ -143,5 +158,26 @@ class RankingService:
             times = "vez" if count == 1 else "veces"
             podium += f"{medal} **{name}**: {count} {times}\n"
             
+        embed.add_field(name="Podio", value=podium, inline=False)
+        return embed
+
+    def build_carry_ranking_embed(self, carry_counts: list[tuple[str, int]]) -> discord.Embed:
+        """Embed con el ranking histórico de partidas carreadas."""
+        embed = discord.Embed(
+            title="🔥 Ranking Histórico de Carries 🔥",
+            color=discord.Color.orange(),
+            description="Cantidad total de partidas carreadas (victoria con KDA ≥ 5)."
+        )
+        if not carry_counts:
+            embed.description = "Nadie ha carreado todavía. ¡Están todos tranqui! 😴"
+            return embed
+
+        podium = ""
+        for i, (name, count) in enumerate(carry_counts):
+            rank = i + 1
+            medal = MEDALS.get(rank, f"#{rank}")
+            times = "vez" if count == 1 else "veces"
+            podium += f"{medal} **{name}**: {count} {times}\n"
+
         embed.add_field(name="Podio", value=podium, inline=False)
         return embed

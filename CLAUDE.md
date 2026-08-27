@@ -102,11 +102,20 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
 
 - **Región:** LAS → `RIOT_PLATFORM=la2`, `RIOT_REGION=americas` (routing de
   account-v1 y match-v5).
-- **Colas contadas:** todas (incluye ARAM/rotativos) para el ranking diario/
-  semanal. Se **excluyen remakes** (< 5 min o early surrender) en
-  `riot/mapper.py`. **Excepción:** el recap "Trolls y Pros" (`previous_week_rows`
-  en `ranking.py`) solo cuenta **Ranked Flex** (`RANKED_FLEX_QUEUE_ID = 440`
-  en `riot/mapper.py`), para medir el juego serio del grupo.
+- **Colas contadas:** los rankings diario/semanal solo cuentan **partidas Ranked**
+  (Flex `440` + Solo/Duo `420`), definidas en `RANKED_QUEUE_IDS` en
+  `riot/mapper.py`. Se **excluyen** normals, ARAM y modos rotativos. También
+  se excluyen remakes (< 5 min o early surrender) en `riot/mapper.py`.
+  El recap "Trolls y Pros" (`previous_week_rows` en `ranking.py`) solo cuenta
+  **Ranked Flex** (`RANKED_FLEX_QUEUE_ID = 440`), para medir el juego serio
+  del grupo.
+- **Carreadas y troleadas:** `MatchRecord.is_carry_game()` detecta partidas
+  donde el jugador carreo (victoria + KDA ≥ 5). `MatchRecord.is_troll_game()`
+  detecta trolleos (KDA < 0.5, sin importar si ganó o perdió ni si hubo FF). `PlayerStats` acumula
+  `carry_games` y `troll_games`, que se exponen como métricas `carry_count` y
+  `troll_count` para el motor de scoring. El `config/scoring.yaml` los pesa
+  como las métricas dominantes. El scheduler postea alertas 🔥 CARREADA y
+  🚨 ALERTA TROLL por cada partida detectada, junto con rankings históricos.
 - **Tipo de partida y rival de línea en los avisos:** `riot/mapper.py::queue_name`
   traduce `queue_id` a un nombre legible (Ranked Flex, ARAM, etc.) y
   `MatchRecord.opponent_champion` guarda al rival de línea (mismo

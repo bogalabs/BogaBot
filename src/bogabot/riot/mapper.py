@@ -18,6 +18,12 @@ MIN_DURATION_SECONDS = 300
 # ID de la cola de Ranked Flex 5v5 (la única que cuenta para "Trolls y Pros").
 RANKED_FLEX_QUEUE_ID = 440
 
+# ID de la cola de Ranked Solo/Duo.
+RANKED_SOLO_QUEUE_ID = 420
+
+# Todas las colas ranked (para filtrar rankings diario/semanal).
+RANKED_QUEUE_IDS: frozenset[int] = frozenset({RANKED_FLEX_QUEUE_ID, RANKED_SOLO_QUEUE_ID})
+
 # Nombres legibles por queueId (ver Riot Data Dragon "queues.json"). Solo se
 # listan las colas relevantes para el grupo; las demás caen al fallback.
 QUEUE_NAMES: dict[int, str] = {
