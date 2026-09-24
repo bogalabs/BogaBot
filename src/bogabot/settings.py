@@ -87,6 +87,7 @@ class Settings:
     general_channel_id: int
     dev_role_id: int | None
     admin_channel_id: int | None
+    bot_channel_id: int | None
     player_role_id: int | None
     lol_role_id: int | None
     match_notify_channel_id: int | None
@@ -165,6 +166,7 @@ class Settings:
             general_channel_id=_require_int("GENERAL_CHANNEL_ID"),
             dev_role_id=_optional_int("DEV_ROLE_ID"),
             admin_channel_id=_optional_int("ADMIN_CHANNEL_ID"),
+            bot_channel_id=_optional_int("BOT_CHANNEL_ID"),
             player_role_id=_optional_int("PLAYER_ROLE_ID"),
             lol_role_id=_optional_int("LOL_ROLE_ID"),
             match_notify_channel_id=_optional_int("MATCH_NOTIFY_CHANNEL_ID"),

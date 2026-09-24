@@ -1,5 +1,5 @@
 """Cog con los slash commands del módulo LoL:
-/link, /unlink, /link-admin, /ingest-now, /ranking, /help, /ayuda.
+/link, /unlink, /link-admin, /unlink-admin, /ingest-now, /ranking.
 
 El cog es "delgado": valida input, llama a los servicios (riot, storage,
 ranking) y responde. Toda la lógica de negocio vive en los servicios, no acá.
@@ -37,9 +37,6 @@ class LolCog(commands.Cog):
 
     def _is_dev(self, member: discord.Member) -> bool:
         return self._has_role(member, self.bot.settings.dev_role_id)
-
-    def _is_player(self, member: discord.Member) -> bool:
-        return self._has_role(member, self.bot.settings.player_role_id)
 
     async def _grant_lol_role(self, member: discord.Member) -> None:
         """Le asigna el rol de LoL configurado (ver LOL_ROLE_ID) al vincularse.
@@ -255,53 +252,3 @@ class LolCog(commands.Cog):
             rows = await self.bot.ranking.daily_rows()
             embed = self.bot.ranking.build_ranking_embed(rows, "🏆 Ranking de hoy")
         await interaction.followup.send(embed=embed)
-
-    async def _send_help(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True)
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        is_dev = member is not None and self._is_dev(member)
-        is_player = member is not None and self._is_player(member)
-
-        embed = discord.Embed(title="📖 Comandos de BogaBot", color=discord.Color.blurple())
-
-        if is_dev:
-            embed.add_field(
-                name="🛠️ Administración (rol dev)",
-                value=(
-                    "`/link-admin <usuario> <Nombre#TAG>` — vinculá la cuenta de Riot de otro usuario del server.\n"
-                    "`/unlink-admin <usuario>` — desvinculá la cuenta de Riot de otro usuario del server.\n"
-                    "`/ingest-now` — forzá una ingesta de partidas ahora mismo."
-                ),
-                inline=False,
-            )
-
-        if is_dev or is_player:
-            embed.add_field(
-                name="🎮 Ranking",
-                value=(
-                    "`/link <Nombre#TAG>` — vinculá tu cuenta de Riot.\n"
-                    "`/unlink` — desvinculá tu cuenta.\n"
-                    "`/ranking [Hoy|Semana]` — mostrá el ranking del grupo.\n"
-                    "*(Solo cuentan las partidas jugadas con al menos otro vinculado del grupo.)*"
-                ),
-                inline=False,
-            )
-
-        if not is_dev and not is_player:
-            embed.description = "Todavía no tenés un rol con comandos asignados. Hablá con un admin del server."
-        else:
-            embed.add_field(
-                name="ℹ️ Ayuda",
-                value="`/help` / `/ayuda` — mostrá este mensaje.",
-                inline=False,
-            )
-
-        await interaction.followup.send(embed=embed)
-
-    @app_commands.command(name="help", description="Mostrá los comandos que podés usar.")
-    async def help_command(self, interaction: discord.Interaction) -> None:
-        await self._send_help(interaction)
-
-    @app_commands.command(name="ayuda", description="Mostrá los comandos que podés usar.")
-    async def ayuda_command(self, interaction: discord.Interaction) -> None:
-        await self._send_help(interaction)

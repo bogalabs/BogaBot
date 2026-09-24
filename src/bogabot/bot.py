@@ -11,7 +11,9 @@ import logging
 import discord
 from discord.ext import commands, tasks
 
+from bogabot.core.command_tree import BogaCommandTree
 from bogabot.core.discord_log_handler import DiscordLogHandler
+from bogabot.modules.help.cog import HelpCog
 from bogabot.modules.lol.cog import LolCog
 from bogabot.modules.lol.ingest import IngestService
 from bogabot.modules.lol.ranking import RankingService
@@ -37,7 +39,7 @@ class BogaBot(commands.Bot):
         # No necesitamos intents privilegiados: los slash commands funcionan con
         # los intents por defecto y el storage solo lee mensajes del propio bot.
         intents = discord.Intents.default()
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(command_prefix="!", intents=intents, tree_cls=BogaCommandTree)
 
         self.settings = settings
 
@@ -66,6 +68,7 @@ class BogaBot(commands.Bot):
         await self.add_cog(SoundsCog(self))
         if self.settings.points_role_id is not None:
             await self.add_cog(PointsCog(self))
+        await self.add_cog(HelpCog(self))
 
         if self.settings.log_channel_id is not None:
             self._flush_log_channel.start()
