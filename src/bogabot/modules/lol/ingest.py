@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from collections.abc import Awaitable, Callable
 
 from bogabot.core.models import MatchRecord, MatchSummary
 from bogabot.core.timeutils import start_of_week, to_epoch_seconds
@@ -42,6 +43,16 @@ class IngestService:
         self._matches = matches
         self._settings = settings
         self._last_auth_alert: dt.datetime | None = None
+        # Otros módulos (ej. puntos) se enteran de las partidas nuevas sin que
+        # LoL sepa de ellos: se registran acá y reciben los registros guardados.
+        self._listeners: list[Callable[[list[MatchRecord]], Awaitable[None]]] = []
+
+    def add_listener(self, callback: Callable[[list[MatchRecord]], Awaitable[None]]) -> None:
+        self._listeners.append(callback)
+
+    def remove_listener(self, callback: Callable[[list[MatchRecord]], Awaitable[None]]) -> None:
+        if callback in self._listeners:
+            self._listeners.remove(callback)
 
     async def ingest_all(self) -> list[MatchRecord]:
         """Ingiere partidas nuevas de todos los jugadores. Devuelve los
@@ -96,6 +107,12 @@ class IngestService:
                 break
 
         log.info("Ingesta completa: %d partidas-jugador nuevas.", len(new_records))
+        if new_records:
+            for callback in list(self._listeners):
+                try:
+                    await callback(new_records)
+                except Exception:  # noqa: BLE001 - un listener no debe romper la ingesta
+                    log.exception("Error en un listener de partidas nuevas.")
         return new_records
 
     async def build_match_summary(self, match_id: str) -> MatchSummary | None:

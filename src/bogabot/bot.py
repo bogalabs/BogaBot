@@ -16,6 +16,9 @@ from bogabot.modules.lol.cog import LolCog
 from bogabot.modules.lol.ingest import IngestService
 from bogabot.modules.lol.ranking import RankingService
 from bogabot.modules.lol.scheduler import LolScheduler
+from bogabot.modules.points.cog import PointsCog
+from bogabot.modules.points.store import PointsStore
+from bogabot.modules.sounds.cog import SoundsCog
 from bogabot.riot.client import RiotClient
 from bogabot.scoring.engine import ScoringEngine
 from bogabot.scoring.schema import load_scoring_config
@@ -47,6 +50,7 @@ class BogaBot(commands.Bot):
         self.riot = RiotClient(settings)
         self.scoring = ScoringEngine(load_scoring_config(settings.scoring_config_path))
         self.storage = DiscordChannelStorage(settings)
+        self.points = PointsStore(settings.points_file)
 
         # --- Servicios de dominio (dependen solo de interfaces) ---
         self.ingest = IngestService(self.riot, self.storage, self.storage, settings)
@@ -59,6 +63,9 @@ class BogaBot(commands.Bot):
         # (ej. un módulo de IA) es agregar cogs acá, sin tocar lo existente.
         await self.add_cog(LolCog(self))
         await self.add_cog(LolScheduler(self))
+        await self.add_cog(SoundsCog(self))
+        if self.settings.points_role_id is not None:
+            await self.add_cog(PointsCog(self))
 
         if self.settings.log_channel_id is not None:
             self._flush_log_channel.start()
