@@ -2,6 +2,7 @@
 
 Dos formas de disparo:
   - Manual: /sonido [nombre]  (en el canal de voz de quien lo pide).
+  - Forzado (solo devs): /sonido-forzar [nombre] [canal].
   - Random: random_job corre cada SOUNDS_CHECK_INTERVAL_MINUTES; dentro del
     horario activo, si hay canales con gente y pasó el cooldown, tira un dado
     (SOUNDS_CHANCE) y, si sale, elige un canal ocupado y un audio al azar.
@@ -388,3 +389,53 @@ class SoundsCog(commands.Cog):
             await self._save_meta()
         log.info("Sonido '%s' borrado por %s.", sound.stem, interaction.user)
         await interaction.response.send_message(f"`{sound.stem}` borrado.", ephemeral=True)
+
+    @app_commands.command(name="sonido-forzar",
+                          description="Hace que el bot entre a un canal de voz y tire un sonido (solo devs).")
+    @app_commands.describe(nombre="Sonido a tirar. Vacío = uno al azar.",
+                           canal="Canal de voz. Vacío = el tuyo, o uno con gente al azar.")
+    async def sonido_forzar(self, interaction: discord.Interaction, nombre: str | None = None,
+                            canal: discord.VoiceChannel | None = None) -> None:
+        member = interaction.user
+        if not isinstance(member, discord.Member) or not self._is_dev(member):
+            await interaction.response.send_message("No tenés permiso para usar este comando.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+
+        if nombre:
+            sound = self._find_sound(nombre)
+            if sound is None:
+                await interaction.followup.send(f"No existe el sonido `{nombre}`. Mirá `/sonidos`.")
+                return
+        else:
+            sounds = self._sound_files()
+            if not sounds:
+                await interaction.followup.send("No hay sonidos cargados.")
+                return
+            sound = random.choice(sounds)
+
+        if canal is None and member.voice is not None and isinstance(member.voice.channel, discord.VoiceChannel):
+            canal = member.voice.channel
+        if canal is None:
+            occupied = self._occupied_voice_channels(member.guild)
+            if not occupied:
+                await interaction.followup.send("No hay nadie en ningún canal de voz. Elegí uno con `canal`.")
+                return
+            canal = random.choice(occupied)
+
+        # A diferencia de /sonido, si hay otro sonido sonando espera su turno
+        # (el lock de _play_in) en vez de rechazar.
+        await interaction.followup.send(f"Voy con `{sound.stem}` a {canal.mention} 🔊")
+        log.info("Sonido '%s' forzado en #%s por %s.", sound.stem, canal.name, member)
+        try:
+            await self._play_in(canal, sound)
+        except Exception:
+            log.exception("Falló /sonido-forzar en #%s.", canal.name)
+            await interaction.followup.send(f"No pude tirar el sonido en {canal.mention}, mirá los logs.")
+
+    @sonido_forzar.autocomplete("nombre")
+    async def _sonido_forzar_nombre(self, interaction: discord.Interaction,
+                                    current: str) -> list[app_commands.Choice[str]]:
+        current = current.lower()
+        return [app_commands.Choice(name=p.stem, value=p.stem)
+                for p in self._sound_files() if current in p.stem.lower()][:25]

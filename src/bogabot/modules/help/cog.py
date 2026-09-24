@@ -74,6 +74,7 @@ class HelpCog(commands.Cog):
                     f"`/unlink-admin <usuario>`{admin_where} — desvinculá la cuenta de otro.\n"
                     f"`/ingest-now`{admin_where} — forzá una ingesta de partidas.\n"
                     "`/puntos-dar <usuario> <cantidad>` — sumá o restá puntos.\n"
+                    "`/sonido-forzar [nombre] [canal]` — el bot entra a un canal de voz y tira ese sonido.\n"
                     "`/sonido-add <nombre> <audio>` — subí un sonido permanente.\n"
                     "`/sonido-del <nombre>` — borrá cualquier sonido.\n"
                     "*(Los devs pueden usar los comandos en cualquier canal.)*"
