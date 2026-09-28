@@ -209,6 +209,33 @@ vez, cada una con su propio server de prueba personal (su propio
 `.env.staging`), y validar contra el staging "oficial" del equipo antes de
 mergear a `main`.
 
+## Producción: el server del grupo
+
+Producción corre en un server Debian propio (`lautiserver`), no en la VPS
+del workflow `.github/workflows/deploy.yml` (ese deploy automático a `main`
+queda para cuando haya VPS). Así está armado hoy:
+
+| Qué | Dónde |
+|---|---|
+| Código | `/home/lautiserver/BogaBot` (clon de este repo, rama que esté en producción) |
+| Servicio | `bogabot.service` (systemd, usuario `lautiserver`, `BOGABOT_ENV=production`) |
+| Config/secretos | `.env.production` (600, solo en el server) + `data/` (puntos, `riot_key.json`) |
+| Logs | `journalctl -u bogabot -f` (y los `WARNING`+ en el canal de logs de Discord) |
+
+Deploy manual (desde el server):
+
+```bash
+cd /home/lautiserver/BogaBot
+git pull --ff-only origin <rama>
+venv/bin/pip install -r requirements.txt   # solo si cambió requirements.txt
+sudo systemctl restart bogabot
+journalctl -u bogabot -n 50 --no-pager     # verificar que levantó
+```
+
+Cambiar la key de Riot no requiere deploy: `/riot-key <key>` desde Discord.
+El acceso SSH y las herramientas de operación del server están en el proyecto
+aparte `sshserver` (fuera de este repo).
+
 ## Comandos
 - `/link <Nombre#TAG>` — vincula tu cuenta de Riot (valida contra la API).
 - `/unlink` — desvincula tu cuenta.
