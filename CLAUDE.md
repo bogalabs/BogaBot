@@ -47,7 +47,7 @@ src/bogabot/
 ├── core/
 │   ├── models.py           # dominio: PlayerLink, MatchRecord, PlayerStats, RankingRow
 │   ├── timeutils.py        # cortes de día/semana según TIMEZONE
-│   └── discord_log_handler.py  # logging.Handler -> cola -> bot.py la manda a LOG_CHANNEL_ID
+│   └── discord_log_handler.py  # logging.Handler -> cola -> bot.py la manda por DM a LOG_USER_ID (o a LOG_CHANNEL_ID)
 ├── storage/                # capa Repository
 │   ├── base.py             # interfaces (ABC) — TODO depende de esto
 │   ├── discord_channel.py  # impl "Discord como DB" (actual)
@@ -168,9 +168,10 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   desde los dos loops sea gratis.
 - **Logging a Discord:** `DiscordLogHandler` (en `core/`) se engancha al
   logger `"bogabot"` (no a `discord.*`, para no capturar el ruido de la
-  librería) cuando hay `LOG_CHANNEL_ID`. Solo encola texto formateado en
-  `emit()` (es sync); `BogaBot._flush_log_channel` (un `tasks.loop`) vacía
-  la cola cada 15s y la manda al canal. Nivel por defecto `WARNING`
+  librería) cuando hay `LOG_USER_ID` o `LOG_CHANNEL_ID`. Solo encola texto
+  formateado en `emit()` (es sync); `BogaBot._flush_log_channel` (un
+  `tasks.loop`) vacía la cola cada 15s y la manda **por DM** a `LOG_USER_ID`
+  (prioridad, para no molestar al grupo) o, si no hay, al canal. Nivel por defecto `WARNING`
   (`LOG_CHANNEL_LEVEL`) para no saturar el canal con el polling de
   `notify_job`.
 

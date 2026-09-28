@@ -108,6 +108,9 @@ class Settings:
     # Logging
     log_level: int
     log_channel_id: int | None
+    # Si está seteado, los logs van por DM a este usuario (tiene prioridad
+    # sobre log_channel_id), para no molestar al resto en un canal.
+    log_user_id: int | None
     log_channel_level: int
     # Sonidos (módulo de voz)
     sounds_enabled: bool
@@ -186,6 +189,7 @@ class Settings:
             daily_post_minute=minute,
             log_level=log_level,
             log_channel_id=_optional_int("LOG_CHANNEL_ID"),
+            log_user_id=_optional_int("LOG_USER_ID"),
             log_channel_level=log_channel_level,
             sounds_enabled=os.getenv("SOUNDS_ENABLED", "true").strip().lower() in ("1", "true", "yes"),
             sounds_dir=os.getenv("SOUNDS_DIR", "sounds"),

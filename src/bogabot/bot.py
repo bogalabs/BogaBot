@@ -44,9 +44,10 @@ class BogaBot(commands.Bot):
 
         self.settings = settings
 
-        # --- Logging hacia Discord (opcional, ver LOG_CHANNEL_ID) ---
+        # --- Logging hacia Discord (opcional, ver LOG_USER_ID / LOG_CHANNEL_ID) ---
         self.log_handler = DiscordLogHandler(level=settings.log_channel_level)
-        if settings.log_channel_id is not None:
+        self._log_to_discord = settings.log_user_id is not None or settings.log_channel_id is not None
+        if self._log_to_discord:
             logging.getLogger("bogabot").addHandler(self.log_handler)
 
         # --- Servicios de infraestructura (elegí las implementaciones acá) ---
@@ -77,7 +78,7 @@ class BogaBot(commands.Bot):
             await self.add_cog(PointsCog(self))
         await self.add_cog(HelpCog(self))
 
-        if self.settings.log_channel_id is not None:
+        if self._log_to_discord:
             self._flush_log_channel.start()
 
         # Sincronización de slash commands.
@@ -103,25 +104,42 @@ class BogaBot(commands.Bot):
 
     @tasks.loop(seconds=15)
     async def _flush_log_channel(self) -> None:
-        """Vacía la cola de `self.log_handler` y la manda a LOG_CHANNEL_ID."""
+        """Vacía la cola de `self.log_handler` y la manda por DM a LOG_USER_ID
+        (si está seteado) o, si no, al canal LOG_CHANNEL_ID."""
         pending = self.log_handler.drain()
         if not pending:
             return
 
-        channel = self.get_channel(self.settings.log_channel_id)
-        if channel is None:
-            channel = await self.fetch_channel(self.settings.log_channel_id)
-        if not isinstance(channel, discord.TextChannel):
+        destination = await self._log_destination()
+        if destination is None:
             return
 
         text = "\n".join(pending)
         for start in range(0, len(text), _LOG_CHUNK_SIZE):
             chunk = text[start : start + _LOG_CHUNK_SIZE]
             try:
-                await channel.send(f"```{chunk}```")
+                await destination.send(f"```{chunk}```")
             except discord.HTTPException:
                 # No usamos log.exception acá: reentraría a este mismo handler.
                 pass
+
+    async def _log_destination(self) -> discord.abc.Messageable | None:
+        """DM al usuario de LOG_USER_ID si está seteado; si no, el canal de logs.
+
+        Sin logs acá ante errores: reentrarían a este mismo handler.
+        """
+        try:
+            if self.settings.log_user_id is not None:
+                user = self.get_user(self.settings.log_user_id)
+                if user is None:
+                    user = await self.fetch_user(self.settings.log_user_id)
+                return user
+            channel = self.get_channel(self.settings.log_channel_id)
+            if channel is None:
+                channel = await self.fetch_channel(self.settings.log_channel_id)
+        except discord.HTTPException:
+            return None
+        return channel if isinstance(channel, discord.TextChannel) else None
 
     @_flush_log_channel.before_loop
     async def _before_flush_log_channel(self) -> None:

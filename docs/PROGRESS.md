@@ -66,6 +66,9 @@ _Última actualización: 2026-08-20 (3)_
       `BogaBot._flush_log_channel`. Si hay `LOG_CHANNEL_ID`, los logs
       `WARNING`+ (`LOG_CHANNEL_LEVEL`) de la app se reenvían también a ese
       canal (`boga-bot-log`), no solo a la consola — 2026-08-20
+- [x] Logs por DM: con `LOG_USER_ID` los logs técnicos se mandan por
+      privado a ese usuario en vez de al canal, para no molestar al
+      resto del grupo — 2026-09-28
 - [x] `.env` con `MATCH_NOTIFY_CHANNEL_ID`, `MATCH_POLL_INTERVAL_MINUTES`,
       `LOG_CHANNEL_ID` y `LOG_CHANNEL_LEVEL` completados — 2026-08-20
 - [x] Aviso de RIOT_API_KEY vencida: `RiotAuthError` (401/403) en
