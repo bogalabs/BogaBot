@@ -71,6 +71,14 @@ _Última actualización: 2026-08-20 (3)_
 - [x] Aviso de RIOT_API_KEY vencida: `RiotAuthError` (401/403) en
       `riot/client.py` corta la corrida de `ingest_all()` y loguea un
       `CRITICAL` (con cooldown de 3h) que llega a `boga-bot-log` — 2026-08-21
+- [x] Errores de red contra Riot (reset en el handshake TLS, timeout, 5xx) se
+      reintentan con backoff en `riot/client.py`; si persisten, la ingesta
+      loguea un warning corto y corta la corrida (sin traceback) — 2026-09-27
+- [x] `/riot-key [key]` (solo rol dev) para renovar la RIOT_API_KEY en
+      caliente, persistida en `RIOT_KEY_FILE`, + recordatorio de vencimiento
+      en `ADMIN_CHANNEL_ID` (`modules/lol/riot_key.py`) — 2026-09-27
+- [x] Producción pasa a usar una Personal API Key de Riot (no vence):
+      `RIOT_KEY_TTL_HOURS=0` en `.env.production` — 2026-09-27
 - [x] Script de autorun local `scripts/run_bot.ps1` (consola visible + log
       en `logs/`) — 2026-08-21
 - [x] Ranking de trolleadas y papelones (`feature/troll-ranking`, PR #2):

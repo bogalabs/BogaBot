@@ -8,6 +8,11 @@ Por qué aiohttp directo y no un wrapper (ej. Cassiopeia):
 
 Rate limits de una dev key: ~20 req/s y ~100 req/2min. El `RateLimiter`
 respeta ambas ventanas; además reintentamos ante un 429 usando Retry-After.
+
+Errores de red transitorios (conexión reseteada en el handshake TLS, timeout,
+DNS) y 5xx de Riot se reintentan con backoff exponencial. Si siguen fallando
+se lanza `RiotUnavailableError`, que el llamador puede tratar como "Riot no
+responde ahora" sin traceback (se reintenta sola en la próxima corrida).
 """
 from __future__ import annotations
 
@@ -35,6 +40,16 @@ class NotFoundError(RiotApiError):
 
 class RiotAuthError(RiotApiError):
     """401/403: RIOT_API_KEY inválida o vencida (la dev key dura 24h)."""
+
+
+class RiotUnavailableError(RiotApiError):
+    """Riot inalcanzable (error de red o 5xx) después de agotar los reintentos."""
+
+
+# Reintentos ante errores de red / 5xx: esperas de 1s, 2s, 4s.
+_NETWORK_RETRIES = 3
+_NETWORK_BACKOFF_BASE = 1.0
+_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=20)
 
 
 class RateLimiter:
@@ -67,13 +82,16 @@ class RiotClient:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._region = settings.riot_region  # americas (routing regional)
+        self._platform = settings.riot_platform  # la2 (routing de plataforma)
+        self._api_key = settings.riot_api_key
         self._session: aiohttp.ClientSession | None = None
         self._limiter = RateLimiter()
 
     async def start(self) -> None:
         if self._session is None:
             self._session = aiohttp.ClientSession(
-                headers={"X-Riot-Token": self._settings.riot_api_key}
+                headers={"X-Riot-Token": self._api_key},
+                timeout=_REQUEST_TIMEOUT,
             )
 
     async def close(self) -> None:
@@ -81,26 +99,67 @@ class RiotClient:
             await self._session.close()
             self._session = None
 
+    def set_api_key(self, api_key: str) -> None:
+        """Cambia la key en caliente (ver `/riot-key`): las requests siguientes
+        ya salen con la nueva, sin reiniciar el bot."""
+        self._api_key = api_key
+        if self._session is not None:
+            self._session.headers["X-Riot-Token"] = api_key
+
+    async def validate_key(self, api_key: str) -> bool:
+        """Prueba `api_key` contra un endpoint barato (lol-status) sin tocar la
+        key en uso. True si Riot la acepta, False si devuelve 401/403."""
+        if self._session is None:
+            raise RuntimeError("RiotClient no inicializado: llamá a start() primero.")
+        url = f"https://{self._platform}.api.riotgames.com/lol/status/v4/platform-data"
+        await self._limiter.acquire()
+        try:
+            async with self._session.get(url, headers={"X-Riot-Token": api_key}) as resp:
+                if resp.status == 200:
+                    return True
+                if resp.status in (401, 403):
+                    return False
+                raise RiotApiError(resp.status, await resp.text())
+        except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as exc:
+            raise RiotUnavailableError(0, f"{type(exc).__name__}: {exc}") from exc
+
     def _base(self) -> str:
         return f"https://{self._region}.api.riotgames.com"
 
     async def _get(self, url: str, params: dict | None = None, _retries: int = 3):
         if self._session is None:
             raise RuntimeError("RiotClient no inicializado: llamá a start() primero.")
-        await self._limiter.acquire()
-        async with self._session.get(url, params=params) as resp:
-            if resp.status == 200:
-                return await resp.json()
-            if resp.status == 404:
-                raise NotFoundError(404, await resp.text())
-            if resp.status in (401, 403):
-                raise RiotAuthError(resp.status, await resp.text())
-            if resp.status == 429 and _retries > 0:
-                retry_after = float(resp.headers.get("Retry-After", "1"))
-                log.warning("Rate limited por Riot; espero %.1fs y reintento.", retry_after)
-                await asyncio.sleep(retry_after)
-                return await self._get(url, params, _retries - 1)
-            raise RiotApiError(resp.status, await resp.text())
+        last_error = ""
+        for attempt in range(_NETWORK_RETRIES + 1):
+            if attempt:
+                await asyncio.sleep(_NETWORK_BACKOFF_BASE * 2 ** (attempt - 1))
+            await self._limiter.acquire()
+            try:
+                async with self._session.get(url, params=params) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    if resp.status == 404:
+                        raise NotFoundError(404, await resp.text())
+                    if resp.status in (401, 403):
+                        raise RiotAuthError(resp.status, await resp.text())
+                    if resp.status == 429 and _retries > 0:
+                        retry_after = float(resp.headers.get("Retry-After", "1"))
+                        log.warning("Rate limited por Riot; espero %.1fs y reintento.", retry_after)
+                        await asyncio.sleep(retry_after)
+                        return await self._get(url, params, _retries - 1)
+                    if resp.status >= 500:
+                        last_error = f"HTTP {resp.status}"
+                        log.debug("Riot devolvió %s (intento %d).", resp.status, attempt + 1)
+                        continue
+                    raise RiotApiError(resp.status, await resp.text())
+            except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as exc:
+                # ClientConnectorError (reset en el handshake TLS, DNS), conexión
+                # cortada a mitad de respuesta o timeout: casi siempre transitorio.
+                last_error = f"{type(exc).__name__}: {exc}"
+                log.debug("Error de red contra Riot (intento %d): %s", attempt + 1, last_error)
+        raise RiotUnavailableError(
+            0, f"sin respuesta tras {_NETWORK_RETRIES + 1} intentos ({last_error})"
+        )
 
     # --- account-v1 --------------------------------------------------------
     async def get_account_by_riot_id(self, game_name: str, tag_line: str) -> dict:

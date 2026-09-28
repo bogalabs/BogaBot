@@ -102,6 +102,13 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
 
 - **Región:** LAS → `RIOT_PLATFORM=la2`, `RIOT_REGION=americas` (routing de
   account-v1 y match-v5).
+- **API key de Riot:** producción usa una **Personal API Key** (no vence),
+  con `RIOT_KEY_TTL_HOURS=0`. La key nunca va en el código: sale de
+  `RIOT_API_KEY` o de `/riot-key` (solo dev), que la valida, la aplica en
+  caliente y la guarda en `RIOT_KEY_FILE` (ver `modules/lol/riot_key.py`).
+  Con una dev key (vence cada 24h), `RIOT_KEY_TTL_HOURS=24` activa el aviso
+  previo en `ADMIN_CHANNEL_ID`. Errores de red/5xx contra Riot se reintentan
+  con backoff en `riot/client.py` (`RiotUnavailableError` si persisten).
 - **Colas contadas:** todas (incluye ARAM/rotativos) para el ranking diario/
   semanal. Se **excluyen remakes** (< 5 min o early surrender) en
   `riot/mapper.py`. **Excepción:** el recap "Trolls y Pros" (`previous_week_rows`

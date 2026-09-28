@@ -18,7 +18,7 @@ from collections.abc import Awaitable, Callable
 
 from bogabot.core.models import MatchRecord, MatchSummary
 from bogabot.core.timeutils import start_of_week, to_epoch_seconds
-from bogabot.riot.client import RiotAuthError, RiotClient
+from bogabot.riot.client import RiotAuthError, RiotClient, RiotUnavailableError
 from bogabot.riot.mapper import map_match, map_match_summary
 from bogabot.settings import Settings
 from bogabot.storage.base import LinkRepository, MatchRepository
@@ -75,6 +75,11 @@ class IngestService:
                 # seguir pegándole a Riot con el resto del loop.
                 self._alert_expired_key()
                 break
+            except RiotUnavailableError as exc:
+                # Problema de red/Riot caído: afecta a todos por igual. Se corta
+                # la corrida sin traceback; el próximo poll lo reintenta.
+                log.warning("Riot no responde (%s); corto la ingesta y reintento en la próxima corrida.", exc)
+                break
             except Exception:  # noqa: BLE001 - un jugador no debe frenar al resto
                 log.exception("Error trayendo IDs de partidas de %s.", link.riot_id)
                 continue
@@ -89,6 +94,9 @@ class IngestService:
                     self._alert_expired_key()
                     auth_failed = True
                     break
+                except RiotUnavailableError as exc:
+                    log.warning("Riot no responde trayendo la partida %s (%s); queda para la próxima corrida.", match_id, exc)
+                    continue
                 except Exception:  # noqa: BLE001
                     log.exception("Error trayendo la partida %s.", match_id)
                     continue
@@ -123,10 +131,18 @@ class IngestService:
         puuid_to_discord = {l.puuid: l.discord_id for l in links}
         try:
             data = await self._riot.get_match(match_id)
+        except RiotUnavailableError as exc:
+            log.warning("Riot no responde armando el resumen de %s (%s).", match_id, exc)
+            return None
         except Exception:  # noqa: BLE001 - una partida no debe frenar al resto
             log.exception("Error trayendo la partida %s para el resumen del aviso.", match_id)
             return None
         return map_match_summary(data, puuid_to_discord)
+
+    def reset_auth_alert(self) -> None:
+        """Se llama al cargar una key nueva: si esa también vence, el aviso
+        sale enseguida en vez de esperar el cooldown de la anterior."""
+        self._last_auth_alert = None
 
     def _alert_expired_key(self) -> None:
         """Loguea (nivel CRITICAL, llega al canal de logs de Discord vía
@@ -140,6 +156,6 @@ class IngestService:
         self._last_auth_alert = now
         log.critical(
             "RIOT_API_KEY vencida o inválida (Riot devolvió 401/403). "
-            "Generá una nueva en https://developer.riotgames.com/, actualizá RIOT_API_KEY "
-            "en el .env y reiniciá el bot. La dev key vence cada 24h."
+            "Generá una nueva en https://developer.riotgames.com/ y cargala con "
+            "`/riot-key` (no hace falta reiniciar). Si es una dev key, vence cada 24h."
         )

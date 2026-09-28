@@ -96,6 +96,9 @@ class Settings:
     riot_api_key: str
     riot_platform: str
     riot_region: str
+    riot_key_file: str
+    riot_key_ttl_hours: int
+    riot_key_warn_minutes: int
     # Scoring
     scoring_config_path: str
     # Tiempo / scheduler
@@ -174,6 +177,9 @@ class Settings:
             riot_api_key=_require("RIOT_API_KEY"),
             riot_platform=os.getenv("RIOT_PLATFORM", "la2"),
             riot_region=os.getenv("RIOT_REGION", "americas"),
+            riot_key_file=os.getenv("RIOT_KEY_FILE", "data/riot_key.json"),
+            riot_key_ttl_hours=max(0, int(os.getenv("RIOT_KEY_TTL_HOURS", "24"))),
+            riot_key_warn_minutes=max(0, int(os.getenv("RIOT_KEY_WARN_MINUTES", "120"))),
             scoring_config_path=os.getenv("SCORING_CONFIG_PATH", "config/scoring.yaml"),
             timezone=os.getenv("TIMEZONE", "America/Argentina/Buenos_Aires"),
             daily_post_hour=hour,

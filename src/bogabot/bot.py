@@ -17,6 +17,7 @@ from bogabot.modules.help.cog import HelpCog
 from bogabot.modules.lol.cog import LolCog
 from bogabot.modules.lol.ingest import IngestService
 from bogabot.modules.lol.ranking import RankingService
+from bogabot.modules.lol.riot_key import RiotKeyCog, RiotKeyStore
 from bogabot.modules.lol.scheduler import LolScheduler
 from bogabot.modules.points.cog import PointsCog
 from bogabot.modules.points.store import PointsStore
@@ -50,6 +51,11 @@ class BogaBot(commands.Bot):
 
         # --- Servicios de infraestructura (elegí las implementaciones acá) ---
         self.riot = RiotClient(settings)
+        # La key vigente puede venir de /riot-key (guardada en RIOT_KEY_FILE)
+        # en vez del .env; ver modules/lol/riot_key.py.
+        self.riot_key_store = RiotKeyStore(settings.riot_key_file)
+        self.riot_key_state = self.riot_key_store.resolve(settings.riot_api_key)
+        self.riot.set_api_key(self.riot_key_state.api_key)
         self.scoring = ScoringEngine(load_scoring_config(settings.scoring_config_path))
         self.storage = DiscordChannelStorage(settings)
         self.points = PointsStore(settings.points_file)
@@ -65,6 +71,7 @@ class BogaBot(commands.Bot):
         # (ej. un módulo de IA) es agregar cogs acá, sin tocar lo existente.
         await self.add_cog(LolCog(self))
         await self.add_cog(LolScheduler(self))
+        await self.add_cog(RiotKeyCog(self, self.riot_key_store, self.riot_key_state))
         await self.add_cog(SoundsCog(self))
         if self.settings.points_role_id is not None:
             await self.add_cog(PointsCog(self))

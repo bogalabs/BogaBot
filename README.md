@@ -116,10 +116,15 @@ También necesitás el ID del server (click derecho sobre el ícono del server
 > — no debería verlo ni escribir en él nadie más que el bot.
 
 ### 5. Conseguir la API key de Riot
-[developer.riotgames.com](https://developer.riotgames.com/) → generá una
-**Development API Key** (gratis, pero vence cada 24h — hay que regenerarla
-seguido a mano) o pedí una **Production Key** si querés algo estable. Va en
-`RIOT_API_KEY`. Ajustá también `RIOT_PLATFORM`/`RIOT_REGION` según la región
+[developer.riotgames.com](https://developer.riotgames.com/) → **Register
+Product → Personal API Key**. Es la que usa el bot en producción: gratis,
+pensada para proyectos chicos como este y **no vence** (Riot la aprueba a
+mano, puede tardar unos días). Va en `RIOT_API_KEY`, con
+`RIOT_KEY_TTL_HOURS=0` para que el bot no avise vencimientos.
+
+Para probar mientras tanto sirve la **Development API Key** del dashboard,
+pero vence cada 24h: dejá `RIOT_KEY_TTL_HOURS=24` (default) y el bot avisa
+antes de que venza; la nueva se carga con `/riot-key` sin reiniciar. Ajustá también `RIOT_PLATFORM`/`RIOT_REGION` según la región
 de tu grupo (ver tabla de variables abajo).
 
 ### 6. Completar el `.env.staging` (o `.env.production`) y correr
@@ -142,7 +147,10 @@ si pusiste `DISCORD_GUILD_ID`).
 | `PLAYER_ROLE_ID` | Rol de jugador/miembro; solo afecta qué ve `/help` y `/ayuda`. |
 | `MATCH_NOTIFY_CHANNEL_ID` | Canal donde se avisa cuando termina una partida (opcional). |
 | `MATCH_POLL_INTERVAL_MINUTES` | Cada cuántos minutos se chequean partidas nuevas para ese aviso. |
-| `RIOT_API_KEY` | API key de Riot (la dev key vence cada 24h). |
+| `RIOT_API_KEY` | API key de Riot. En producción, la **Personal API Key** (no vence); la dev key vence cada 24h. Se puede rotar en caliente con `/riot-key`. |
+| `RIOT_KEY_FILE` | Dónde se guarda la key cargada con `/riot-key` (default `data/riot_key.json`). |
+| `RIOT_KEY_TTL_HOURS` | Horas de vida de la key para el recordatorio (default `24`, para la dev key; con la Personal API Key poné `0` = no vence, sin recordatorio). |
+| `RIOT_KEY_WARN_MINUTES` | Cuántos minutos antes de vencer se avisa (default `120`). |
 | `RIOT_PLATFORM` | Plataforma (LAS = `la2`). |
 | `RIOT_REGION` | Routing regional (LAS/LAN/NA → `americas`). |
 | `TIMEZONE` | Zona horaria para los cortes de día/semana. |
@@ -214,6 +222,13 @@ mergear a `main`.
 - `/ingest-now` — fuerza una ingesta de partidas manual (solo rol dev). Es
   idempotente: correrlo varias veces no duplica nada, el dedup por
   (match_id, puuid) saltea lo que ya está guardado.
+- `/riot-key [key]` — (solo rol dev, en `ADMIN_CHANNEL_ID`) valida y aplica
+  una RIOT_API_KEY nueva **sin reiniciar** el bot, y la guarda en
+  `RIOT_KEY_FILE` para que sobreviva reinicios. Sin `key`, muestra cuándo
+  vence la actual. La respuesta es efímera: la key no queda visible. Si
+  después alguien cambia `RIOT_API_KEY` en el `.env`, esa pasa a mandar.
+  Además, el bot avisa en `ADMIN_CHANNEL_ID` (etiquetando al rol dev)
+  `RIOT_KEY_WARN_MINUTES` antes de que venza y cuando vence.
 
 ## Avisos "en vivo" y logs
 
