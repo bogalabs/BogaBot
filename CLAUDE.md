@@ -144,8 +144,12 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   medianoche, ej. 23:55, para que el "ranking de hoy" no salga vacío si se
   juega de noche): ingesta → ranking diario; los lunes, recap semanal
   "Trolls y Pros" de la semana que cerró.
-- **Dedup por `(match_id, puuid)`**, sin cursor: cada corrida pide "desde el
-  lunes" y saltea lo ya guardado. Por esto `/ingest-now` (comando manual de
+- **Dedup por `(match_id, discord_id)`**, sin cursor: cada corrida pide "desde el
+  lunes" y saltea lo ya guardado. **No** por puuid: Riot encripta el puuid
+  según la app de la API key, así que cambia si se cambia de key (ej. dev →
+  Personal). Ante un `400 Exception decrypting` (`RiotPuuidMismatchError`),
+  `IngestService.refresh_puuids()` re-resuelve los puuid por Riot ID y la
+  ingesta reintenta sola. Por esto `/ingest-now` (comando manual de
   ingesta, solo rol dev) es idempotente: correrlo varias veces no duplica nada.
 - **Storage actual = Discord** (mensajes JSON en canal privado + índice en
   memoria hidratado al arrancar). Es O(n) mensajes; migrar a DB real cuando

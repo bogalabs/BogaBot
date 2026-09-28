@@ -79,6 +79,10 @@ _Última actualización: 2026-08-20 (3)_
       en `ADMIN_CHANNEL_ID` (`modules/lol/riot_key.py`) — 2026-09-27
 - [x] Producción pasa a usar una Personal API Key de Riot (no vence):
       `RIOT_KEY_TTL_HOURS=0` en `.env.production` — 2026-09-27
+- [x] Cambio de key a otra app de Riot rompía todo (`400 Exception
+      decrypting`: los puuid vienen encriptados por app). Dedup pasa a
+      `(match_id, discord_id)` y la ingesta re-resuelve los puuid por Riot ID
+      sola (`IngestService.refresh_puuids`) — 2026-09-27
 - [x] Script de autorun local `scripts/run_bot.ps1` (consola visible + log
       en `logs/`) — 2026-08-21
 - [x] Ranking de trolleadas y papelones (`feature/troll-ranking`, PR #2):

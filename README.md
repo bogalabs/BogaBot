@@ -248,7 +248,7 @@ aparte `sshserver` (fuera de este repo).
   comandos de ranking). Ambos hacen lo mismo, son solo dos nombres.
 - `/ingest-now` — fuerza una ingesta de partidas manual (solo rol dev). Es
   idempotente: correrlo varias veces no duplica nada, el dedup por
-  (match_id, puuid) saltea lo que ya está guardado.
+  (match_id, discord_id) saltea lo que ya está guardado.
 - `/riot-key [key]` — (solo rol dev, en `ADMIN_CHANNEL_ID`) valida y aplica
   una RIOT_API_KEY nueva **sin reiniciar** el bot, y la guarda en
   `RIOT_KEY_FILE` para que sobreviva reinicios. Sin `key`, muestra cuándo

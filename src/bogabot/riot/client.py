@@ -42,6 +42,12 @@ class RiotAuthError(RiotApiError):
     """401/403: RIOT_API_KEY inválida o vencida (la dev key dura 24h)."""
 
 
+class RiotPuuidMismatchError(RiotApiError):
+    """400 "Exception decrypting": el puuid se obtuvo con una key de OTRA app
+    de Riot (los puuid vienen encriptados por app). Hay que re-resolverlo por
+    Riot ID con la key actual (ver `IngestService.refresh_puuids`)."""
+
+
 class RiotUnavailableError(RiotApiError):
     """Riot inalcanzable (error de red o 5xx) después de agotar los reintentos."""
 
@@ -147,6 +153,11 @@ class RiotClient:
                         log.warning("Rate limited por Riot; espero %.1fs y reintento.", retry_after)
                         await asyncio.sleep(retry_after)
                         return await self._get(url, params, _retries - 1)
+                    if resp.status == 400:
+                        body = await resp.text()
+                        if "Exception decrypting" in body:
+                            raise RiotPuuidMismatchError(400, body)
+                        raise RiotApiError(400, body)
                     if resp.status >= 500:
                         last_error = f"HTTP {resp.status}"
                         log.debug("Riot devolvió %s (intento %d).", resp.status, attempt + 1)
