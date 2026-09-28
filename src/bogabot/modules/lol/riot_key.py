@@ -89,6 +89,8 @@ class RiotKeyStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".tmp")
         tmp.write_text(data, encoding="utf-8")
+        # Tiene la key: solo lectura para el dueño, igual que el .env.
+        os.chmod(tmp, 0o600)
         os.replace(tmp, self._path)
 
 
