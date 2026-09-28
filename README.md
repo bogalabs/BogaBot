@@ -7,7 +7,7 @@ opcionalmente, cada pocos minutos para avisar en vivo), calcula un puntaje
 configurable por jugador y publica rankings (diario y "Trolls y Pros" semanal)
 en Discord.
 
-## Arquitectura (por capas, cada una reemplazable)
+## Arquitectura (por capas, cada una reemplazable) 
 
 ```
 run.py                      # entrypoint: python run.py
@@ -57,12 +57,15 @@ venv\Scripts\activate
 pip install -r requirements.txt
 
 # 3. Configuración
-copy .env.example .env
-# Editá .env y completá los valores (ver guía abajo).
+copy .env.example .env.staging
+# Editá .env.staging y completá los valores (ver guía abajo).
 
-# 4. Correr
+# 4. Correr (BOGABOT_ENV default = staging si no lo seteás)
 python run.py
 ```
+
+Ver [Ambientes: staging vs. production](#ambientes-staging-vs-production) para
+correr contra producción o entender cómo elige el bot qué archivo cargar.
 
 ## Guía rápida: correr tu propio bot en tu propio server
 
@@ -113,19 +116,25 @@ También necesitás el ID del server (click derecho sobre el ícono del server
 > — no debería verlo ni escribir en él nadie más que el bot.
 
 ### 5. Conseguir la API key de Riot
-[developer.riotgames.com](https://developer.riotgames.com/) → generá una
-**Development API Key** (gratis, pero vence cada 24h — hay que regenerarla
-seguido a mano) o pedí una **Production Key** si querés algo estable. Va en
-`RIOT_API_KEY`. Ajustá también `RIOT_PLATFORM`/`RIOT_REGION` según la región
+[developer.riotgames.com](https://developer.riotgames.com/) → **Register
+Product → Personal API Key**. Es la que usa el bot en producción: gratis,
+pensada para proyectos chicos como este y **no vence** (Riot la aprueba a
+mano, puede tardar unos días). Va en `RIOT_API_KEY`, con
+`RIOT_KEY_TTL_HOURS=0` para que el bot no avise vencimientos.
+
+Para probar mientras tanto sirve la **Development API Key** del dashboard,
+pero vence cada 24h: dejá `RIOT_KEY_TTL_HOURS=24` (default) y el bot avisa
+antes de que venza; la nueva se carga con `/riot-key` sin reiniciar. Ajustá también `RIOT_PLATFORM`/`RIOT_REGION` según la región
 de tu grupo (ver tabla de variables abajo).
 
-### 6. Completar el `.env` y correr
-Con todos los IDs y tokens, completá `.env` (ver la tabla completa de
-variables más abajo) y corré `python run.py`. Al primer arranque el bot
-registra los slash commands en tu server (instantáneo si pusiste
-`DISCORD_GUILD_ID`).
+### 6. Completar el `.env.staging` (o `.env.production`) y correr
+Con todos los IDs y tokens, completá el archivo del ambiente que corresponda
+(ver la tabla completa de variables más abajo, y la sección de
+[ambientes](#ambientes-staging-vs-production)) y corré `python run.py`. Al
+primer arranque el bot registra los slash commands en tu server (instantáneo
+si pusiste `DISCORD_GUILD_ID`).
 
-### Variables de entorno (.env)
+### Variables de entorno (.env.staging / .env.production)
 
 | Variable | Descripción |
 |---|---|
@@ -138,7 +147,10 @@ registra los slash commands en tu server (instantáneo si pusiste
 | `PLAYER_ROLE_ID` | Rol de jugador/miembro; solo afecta qué ve `/help` y `/ayuda`. |
 | `MATCH_NOTIFY_CHANNEL_ID` | Canal donde se avisa cuando termina una partida (opcional). |
 | `MATCH_POLL_INTERVAL_MINUTES` | Cada cuántos minutos se chequean partidas nuevas para ese aviso. |
-| `RIOT_API_KEY` | API key de Riot (la dev key vence cada 24h). |
+| `RIOT_API_KEY` | API key de Riot. En producción, la **Personal API Key** (no vence); la dev key vence cada 24h. Se puede rotar en caliente con `/riot-key`. |
+| `RIOT_KEY_FILE` | Dónde se guarda la key cargada con `/riot-key` (default `data/riot_key.json`). |
+| `RIOT_KEY_TTL_HOURS` | Horas de vida de la key para el recordatorio (default `24`, para la dev key; con la Personal API Key poné `0` = no vence, sin recordatorio). |
+| `RIOT_KEY_WARN_MINUTES` | Cuántos minutos antes de vencer se avisa (default `120`). |
 | `RIOT_PLATFORM` | Plataforma (LAS = `la2`). |
 | `RIOT_REGION` | Routing regional (LAS/LAN/NA → `americas`). |
 | `TIMEZONE` | Zona horaria para los cortes de día/semana. |
@@ -152,6 +164,78 @@ registra los slash commands en tu server (instantáneo si pusiste
 - Al invitarlo, activá el scope `applications.commands` (para slash commands).
 - No requiere intents privilegiados.
 
+## Ambientes: staging vs. production
+
+El bot corre en dos ambientes posibles, elegidos por la variable de entorno
+**`BOGABOT_ENV`** (la seteás en la terminal/shell antes de correr `python
+run.py`, no dentro del `.env`):
+
+| `BOGABOT_ENV` | Archivo que carga | Uso |
+|---|---|---|
+| _(sin setear)_ o `staging` | `.env.staging` | Default. Desarrollo y pruebas del equipo. |
+| `production` | `.env.production` | El bot real, en el server real del grupo. |
+
+El default es **staging** a propósito: si te olvidás de setear la variable,
+nunca corrés contra producción por accidente. Ninguno de los dos archivos se
+commitea (están en `.gitignore`); `.env.production` solo lo tiene quien
+administra el bot en vivo.
+
+Recomendado: **staging apunta a otro bot de Discord (otro token, otra
+Application) invitado a otro server**, no al mismo. El storage del bot vive
+en canales de Discord (`STORAGE_CHANNEL_ID`), así que si staging y
+production comparten server/canales terminás mezclando datos de prueba con
+datos reales del grupo.
+
+Formas de correrlo:
+
+```powershell
+# Local, directo (default staging)
+python run.py
+
+# Local, explícito
+$env:BOGABOT_ENV = "staging"
+python run.py
+
+# Con el script (levanta consola + log en logs\<ambiente>\)
+.\scripts\run_bot.ps1                              # staging
+.\scripts\run_bot.ps1 -Environment production       # pide confirmación
+.\scripts\run_bot.ps1 -Environment production -Force  # sin confirmar (autorun)
+```
+
+**Importante (por ahora corremos todo local, no en VPS):** no levantar dos
+instancias del bot al mismo tiempo apuntando al mismo ambiente/server — te
+respondería el comando dos veces. Si dos personas quieren tocar código a la
+vez, cada una con su propio server de prueba personal (su propio
+`.env.staging`), y validar contra el staging "oficial" del equipo antes de
+mergear a `main`.
+
+## Producción: el server del grupo
+
+Producción corre en un server Debian propio (`lautiserver`), no en la VPS
+del workflow `.github/workflows/deploy.yml` (ese deploy automático a `main`
+queda para cuando haya VPS). Así está armado hoy:
+
+| Qué | Dónde |
+|---|---|
+| Código | `/home/lautiserver/BogaBot` (clon de este repo, rama que esté en producción) |
+| Servicio | `bogabot.service` (systemd, usuario `lautiserver`, `BOGABOT_ENV=production`) |
+| Config/secretos | `.env.production` (600, solo en el server) + `data/` (puntos, `riot_key.json`) |
+| Logs | `journalctl -u bogabot -f` (y los `WARNING`+ en el canal de logs de Discord) |
+
+Deploy manual (desde el server):
+
+```bash
+cd /home/lautiserver/BogaBot
+git pull --ff-only origin <rama>
+venv/bin/pip install -r requirements.txt   # solo si cambió requirements.txt
+sudo systemctl restart bogabot
+journalctl -u bogabot -n 50 --no-pager     # verificar que levantó
+```
+
+Cambiar la key de Riot no requiere deploy: `/riot-key <key>` desde Discord.
+El acceso SSH y las herramientas de operación del server están en el proyecto
+aparte `sshserver` (fuera de este repo).
+
 ## Comandos
 - `/link <Nombre#TAG>` — vincula tu cuenta de Riot (valida contra la API).
 - `/unlink` — desvincula tu cuenta.
@@ -164,7 +248,14 @@ registra los slash commands en tu server (instantáneo si pusiste
   comandos de ranking). Ambos hacen lo mismo, son solo dos nombres.
 - `/ingest-now` — fuerza una ingesta de partidas manual (solo rol dev). Es
   idempotente: correrlo varias veces no duplica nada, el dedup por
-  (match_id, puuid) saltea lo que ya está guardado.
+  (match_id, discord_id) saltea lo que ya está guardado.
+- `/riot-key [key]` — (solo rol dev, en `ADMIN_CHANNEL_ID`) valida y aplica
+  una RIOT_API_KEY nueva **sin reiniciar** el bot, y la guarda en
+  `RIOT_KEY_FILE` para que sobreviva reinicios. Sin `key`, muestra cuándo
+  vence la actual. La respuesta es efímera: la key no queda visible. Si
+  después alguien cambia `RIOT_API_KEY` en el `.env`, esa pasa a mandar.
+  Además, el bot avisa en `ADMIN_CHANNEL_ID` (etiquetando al rol dev)
+  `RIOT_KEY_WARN_MINUTES` antes de que venza y cuando vence.
 
 ## Avisos "en vivo" y logs
 

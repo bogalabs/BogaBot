@@ -79,8 +79,14 @@ class TestInMemoryStorage(unittest.TestCase):
             )
             await store.save_match(rec)
             await store.save_match(rec)  # duplicado
-            self.assertTrue(await store.match_exists("LA2_1", "p1"))
-            self.assertFalse(await store.match_exists("LA2_1", "otro"))
+            self.assertTrue(await store.match_exists("LA2_1", 1))
+            self.assertFalse(await store.match_exists("LA2_1", 2))
+            self.assertEqual(len(await store.get_all_matches()), 1)
+
+            # Mismo jugador con otro puuid (cambio de API key): sigue siendo duplicado.
+            rec.puuid = "p1-otra-key"
+            await store.save_match(rec)
+            self.assertEqual(len(await store.get_all_matches()), 1)
 
         asyncio.run(scenario())
 

@@ -1,4 +1,4 @@
-"""Carga y valida la configuración desde variables de entorno (.env).
+"""Carga y valida la configuración desde variables de entorno (.env.<ambiente>).
 
 Toda la app depende de este objeto `Settings`. Nada de rutas ni valores
 hardcodeados: si falta una variable requerida, el bot falla al arrancar con
@@ -9,8 +9,12 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_VALID_ENVIRONMENTS = ("staging", "production")
 
 
 class ConfigError(RuntimeError):
@@ -45,8 +49,36 @@ def _optional_int(name: str) -> int | None:
         raise ConfigError(f"La variable '{name}' debe ser un número entero, no '{raw}'.") from exc
 
 
+def _load_env_file() -> str:
+    """Carga el archivo .env.<BOGABOT_ENV> correspondiente al ambiente.
+
+    Default 'staging': si alguien se olvida de setear BOGABOT_ENV, el bot
+    arranca contra el ambiente de prueba y no contra producción por accidente.
+    Devuelve el nombre del ambiente cargado.
+    """
+    env_name = os.getenv("BOGABOT_ENV", "staging").strip().lower()
+    if env_name not in _VALID_ENVIRONMENTS:
+        raise ConfigError(
+            f"BOGABOT_ENV='{env_name}' inválido. Usá uno de: "
+            f"{', '.join(_VALID_ENVIRONMENTS)}."
+        )
+
+    env_path = _PROJECT_ROOT / f".env.{env_name}"
+    if not env_path.exists():
+        raise ConfigError(
+            f"No encontré '{env_path.name}' en la raíz del proyecto. "
+            f"Creá ese archivo a partir de '.env.example' (BOGABOT_ENV actual: "
+            f"'{env_name}')."
+        )
+
+    load_dotenv(dotenv_path=env_path, override=True)
+    return env_name
+
+
 @dataclass(frozen=True)
 class Settings:
+    # Ambiente
+    environment: str
     # Discord
     discord_token: str
     guild_id: int | None
@@ -55,6 +87,7 @@ class Settings:
     general_channel_id: int
     dev_role_id: int | None
     admin_channel_id: int | None
+    bot_channel_id: int | None
     player_role_id: int | None
     lol_role_id: int | None
     match_notify_channel_id: int | None
@@ -63,6 +96,9 @@ class Settings:
     riot_api_key: str
     riot_platform: str
     riot_region: str
+    riot_key_file: str
+    riot_key_ttl_hours: int
+    riot_key_warn_minutes: int
     # Scoring
     scoring_config_path: str
     # Tiempo / scheduler
@@ -73,10 +109,30 @@ class Settings:
     log_level: int
     log_channel_id: int | None
     log_channel_level: int
+    # Sonidos (módulo de voz)
+    sounds_enabled: bool
+    sounds_dir: str
+    sounds_chance: float
+    sounds_cooldown_minutes: int
+    sounds_check_interval_minutes: int
+    sounds_active_from: int
+    sounds_active_to: int
+    # Puntos (canjeables por sonidos temporales)
+    points_role_id: int | None
+    points_file: str
+    points_voice_interval_minutes: int
+    points_voice_amount: int
+    points_voice_daily_cap: int
+    points_lol_game: int
+    points_lol_win: int
+    sound_redeem_cost: int
+    sound_redeem_days: int
+    sound_redeem_max_seconds: int
+    sound_redeem_max_active: int
 
     @classmethod
     def load(cls) -> "Settings":
-        load_dotenv()  # lee .env de la raíz del proyecto si existe
+        env_name = _load_env_file()
 
         level_name = os.getenv("LOG_LEVEL", "INFO").upper()
         log_level = getattr(logging, level_name, logging.INFO)
@@ -96,7 +152,16 @@ class Settings:
         log_channel_level_name = os.getenv("LOG_CHANNEL_LEVEL", "WARNING").upper()
         log_channel_level = getattr(logging, log_channel_level_name, logging.WARNING)
 
+        sounds_chance = float(os.getenv("SOUNDS_CHANCE", "0.15"))
+        if not 0.0 <= sounds_chance <= 1.0:
+            raise ConfigError("SOUNDS_CHANCE debe estar entre 0 y 1.")
+        sounds_active_from = int(os.getenv("SOUNDS_ACTIVE_FROM", "0"))
+        sounds_active_to = int(os.getenv("SOUNDS_ACTIVE_TO", "0"))
+        if not (0 <= sounds_active_from <= 23 and 0 <= sounds_active_to <= 23):
+            raise ConfigError("SOUNDS_ACTIVE_FROM / SOUNDS_ACTIVE_TO deben estar entre 0 y 23.")
+
         return cls(
+            environment=env_name,
             discord_token=_require("DISCORD_TOKEN"),
             guild_id=_optional_int("DISCORD_GUILD_ID"),
             storage_channel_id=_require_int("STORAGE_CHANNEL_ID"),
@@ -104,6 +169,7 @@ class Settings:
             general_channel_id=_require_int("GENERAL_CHANNEL_ID"),
             dev_role_id=_optional_int("DEV_ROLE_ID"),
             admin_channel_id=_optional_int("ADMIN_CHANNEL_ID"),
+            bot_channel_id=_optional_int("BOT_CHANNEL_ID"),
             player_role_id=_optional_int("PLAYER_ROLE_ID"),
             lol_role_id=_optional_int("LOL_ROLE_ID"),
             match_notify_channel_id=_optional_int("MATCH_NOTIFY_CHANNEL_ID"),
@@ -111,6 +177,9 @@ class Settings:
             riot_api_key=_require("RIOT_API_KEY"),
             riot_platform=os.getenv("RIOT_PLATFORM", "la2"),
             riot_region=os.getenv("RIOT_REGION", "americas"),
+            riot_key_file=os.getenv("RIOT_KEY_FILE", "data/riot_key.json"),
+            riot_key_ttl_hours=max(0, int(os.getenv("RIOT_KEY_TTL_HOURS", "24"))),
+            riot_key_warn_minutes=max(0, int(os.getenv("RIOT_KEY_WARN_MINUTES", "120"))),
             scoring_config_path=os.getenv("SCORING_CONFIG_PATH", "config/scoring.yaml"),
             timezone=os.getenv("TIMEZONE", "America/Argentina/Buenos_Aires"),
             daily_post_hour=hour,
@@ -118,4 +187,22 @@ class Settings:
             log_level=log_level,
             log_channel_id=_optional_int("LOG_CHANNEL_ID"),
             log_channel_level=log_channel_level,
+            sounds_enabled=os.getenv("SOUNDS_ENABLED", "true").strip().lower() in ("1", "true", "yes"),
+            sounds_dir=os.getenv("SOUNDS_DIR", "sounds"),
+            sounds_chance=sounds_chance,
+            sounds_cooldown_minutes=int(os.getenv("SOUNDS_COOLDOWN_MINUTES", "45")),
+            sounds_check_interval_minutes=int(os.getenv("SOUNDS_CHECK_INTERVAL_MINUTES", "5")),
+            sounds_active_from=sounds_active_from,
+            sounds_active_to=sounds_active_to,
+            points_role_id=_optional_int("POINTS_ROLE_ID"),
+            points_file=os.getenv("POINTS_FILE", "data/points.json"),
+            points_voice_interval_minutes=max(1, int(os.getenv("POINTS_VOICE_INTERVAL_MINUTES", "5"))),
+            points_voice_amount=int(os.getenv("POINTS_VOICE_AMOUNT", "1")),
+            points_voice_daily_cap=int(os.getenv("POINTS_VOICE_DAILY_CAP", "60")),
+            points_lol_game=int(os.getenv("POINTS_LOL_GAME", "5")),
+            points_lol_win=int(os.getenv("POINTS_LOL_WIN", "5")),
+            sound_redeem_cost=int(os.getenv("SOUND_REDEEM_COST", "100")),
+            sound_redeem_days=int(os.getenv("SOUND_REDEEM_DAYS", "7")),
+            sound_redeem_max_seconds=int(os.getenv("SOUND_REDEEM_MAX_SECONDS", "8")),
+            sound_redeem_max_active=int(os.getenv("SOUND_REDEEM_MAX_ACTIVE", "1")),
         )

@@ -20,8 +20,13 @@ calcular un puntaje configurable por jugador → publicar rankings en Discord.
 1. **Nunca hardcodear secretos ni rutas.** Todo sale de variables de entorno
    vía `settings.py` (que lee `.env`). El código no debe asumir que corre en
    una máquina puntual.
-2. **`.env` nunca se commitea** (está en `.gitignore`). Cambios de config →
-   actualizar también `.env.example` documentando la variable.
+2. **Ningún `.env.*` real se commitea** (están en `.gitignore`; solo
+   `.env.example` se trackea). El ambiente (`staging`/`production`) se elige
+   por la variable de shell `BOGABOT_ENV`, que hace que `settings.py` cargue
+   `.env.staging` o `.env.production` — default `staging` si no está seteada,
+   para no correr producción por accidente. Ver `README.md` →
+   "Ambientes: staging vs. production". Cambios de config → actualizar
+   también `.env.example` documentando la variable nueva.
 3. **El resto de la app no sabe de dónde salen los datos.** Todo pasa por las
    interfaces de `storage/base.py` (`LinkRepository`, `MatchRepository`).
    Nunca importar `DiscordChannelStorage` fuera de `bot.py`.
@@ -97,20 +102,18 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
 
 - **Región:** LAS → `RIOT_PLATFORM=la2`, `RIOT_REGION=americas` (routing de
   account-v1 y match-v5).
-- **Colas contadas:** los rankings diario/semanal solo cuentan **partidas Ranked**
-  (Flex `440` + Solo/Duo `420`), definidas en `RANKED_QUEUE_IDS` en
-  `riot/mapper.py`. Se **excluyen** normals, ARAM y modos rotativos. También
-  se excluyen remakes (< 5 min o early surrender) en `riot/mapper.py`.
-  El recap "Trolls y Pros" (`previous_week_rows` en `ranking.py`) solo cuenta
-  **Ranked Flex** (`RANKED_FLEX_QUEUE_ID = 440`), para medir el juego serio
-  del grupo.
-- **Carreadas y troleadas:** `MatchRecord.is_carry_game()` detecta partidas
-  donde el jugador carreo (victoria + KDA ≥ 5). `MatchRecord.is_troll_game()`
-  detecta trolleos (KDA < 0.5, sin importar si ganó o perdió ni si hubo FF). `PlayerStats` acumula
-  `carry_games` y `troll_games`, que se exponen como métricas `carry_count` y
-  `troll_count` para el motor de scoring. El `config/scoring.yaml` los pesa
-  como las métricas dominantes. El scheduler postea alertas 🔥 CARREADA y
-  🚨 ALERTA TROLL por cada partida detectada, junto con rankings históricos.
+- **API key de Riot:** producción usa una **Personal API Key** (no vence),
+  con `RIOT_KEY_TTL_HOURS=0`. La key nunca va en el código: sale de
+  `RIOT_API_KEY` o de `/riot-key` (solo dev), que la valida, la aplica en
+  caliente y la guarda en `RIOT_KEY_FILE` (ver `modules/lol/riot_key.py`).
+  Con una dev key (vence cada 24h), `RIOT_KEY_TTL_HOURS=24` activa el aviso
+  previo en `ADMIN_CHANNEL_ID`. Errores de red/5xx contra Riot se reintentan
+  con backoff en `riot/client.py` (`RiotUnavailableError` si persisten).
+- **Colas contadas:** todas (incluye ARAM/rotativos) para el ranking diario/
+  semanal. Se **excluyen remakes** (< 5 min o early surrender) en
+  `riot/mapper.py`. **Excepción:** el recap "Trolls y Pros" (`previous_week_rows`
+  en `ranking.py`) solo cuenta **Ranked Flex** (`RANKED_FLEX_QUEUE_ID = 440`
+  en `riot/mapper.py`), para medir el juego serio del grupo.
 - **Tipo de partida y rival de línea en los avisos:** `riot/mapper.py::queue_name`
   traduce `queue_id` a un nombre legible (Ranked Flex, ARAM, etc.) y
   `MatchRecord.opponent_champion` guarda al rival de línea (mismo
@@ -141,8 +144,12 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   medianoche, ej. 23:55, para que el "ranking de hoy" no salga vacío si se
   juega de noche): ingesta → ranking diario; los lunes, recap semanal
   "Trolls y Pros" de la semana que cerró.
-- **Dedup por `(match_id, puuid)`**, sin cursor: cada corrida pide "desde el
-  lunes" y saltea lo ya guardado. Por esto `/ingest-now` (comando manual de
+- **Dedup por `(match_id, discord_id)`**, sin cursor: cada corrida pide "desde el
+  lunes" y saltea lo ya guardado. **No** por puuid: Riot encripta el puuid
+  según la app de la API key, así que cambia si se cambia de key (ej. dev →
+  Personal). Ante un `400 Exception decrypting` (`RiotPuuidMismatchError`),
+  `IngestService.refresh_puuids()` re-resuelve los puuid por Riot ID y la
+  ingesta reintenta sola. Gracias al dedup, `/ingest-now` (comando manual de
   ingesta, solo rol dev) es idempotente: correrlo varias veces no duplica nada.
 - **Storage actual = Discord** (mensajes JSON en canal privado + índice en
   memoria hidratado al arrancar). Es O(n) mensajes; migrar a DB real cuando

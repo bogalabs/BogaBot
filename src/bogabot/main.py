@@ -18,6 +18,8 @@ def main() -> None:
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    log = logging.getLogger("bogabot")
+    log.warning("Arrancando BogaBot — ambiente: %s (.env.%s)", settings.environment.upper(), settings.environment)
 
     bot = BogaBot(settings)
     # log_handler=None: usamos nuestra propia config de logging (no la de discord.py).
