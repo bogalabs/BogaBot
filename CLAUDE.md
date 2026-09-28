@@ -149,7 +149,7 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   según la app de la API key, así que cambia si se cambia de key (ej. dev →
   Personal). Ante un `400 Exception decrypting` (`RiotPuuidMismatchError`),
   `IngestService.refresh_puuids()` re-resuelve los puuid por Riot ID y la
-  ingesta reintenta sola. Por esto `/ingest-now` (comando manual de
+  ingesta reintenta sola. Gracias al dedup, `/ingest-now` (comando manual de
   ingesta, solo rol dev) es idempotente: correrlo varias veces no duplica nada.
 - **Storage actual = Discord** (mensajes JSON en canal privado + índice en
   memoria hidratado al arrancar). Es O(n) mensajes; migrar a DB real cuando
