@@ -42,8 +42,8 @@ class MatchRepository(ABC):
         ...
 
     @abstractmethod
-    async def match_exists(self, match_id: str, puuid: str) -> bool:
-        """Dedup: True si ese jugador+partida ya está guardado."""
+    async def match_exists(self, match_id: str, discord_id: int) -> bool:
+        """Dedup: True si ese jugador (por discord_id) + partida ya está guardado."""
 
     @abstractmethod
     async def get_matches(self, since: datetime, until: datetime) -> list[MatchRecord]:

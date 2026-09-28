@@ -57,8 +57,10 @@ class PlayerLink:
 class MatchRecord:
     """Stats de UN jugador en UNA partida. Es la unidad que se persiste.
 
-    La clave de deduplicación es (match_id, puuid): una misma partida genera
-    un registro por cada jugador vinculado que la haya jugado.
+    La clave de deduplicación es (match_id, discord_id): una misma partida
+    genera un registro por cada jugador vinculado que la haya jugado. No se usa
+    el puuid porque Riot lo encripta distinto según la app de la API key: al
+    cambiar de key, el mismo jugador vuelve con otro puuid.
     """
 
     match_id: str
@@ -94,7 +96,7 @@ class MatchRecord:
 
     @property
     def dedup_key(self) -> str:
-        return f"{self.match_id}:{self.puuid}"
+        return f"{self.match_id}:{self.discord_id}"
 
     def to_dict(self) -> dict:
         return {

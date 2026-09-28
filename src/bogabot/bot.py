@@ -11,11 +11,17 @@ import logging
 import discord
 from discord.ext import commands, tasks
 
+from bogabot.core.command_tree import BogaCommandTree
 from bogabot.core.discord_log_handler import DiscordLogHandler
+from bogabot.modules.help.cog import HelpCog
 from bogabot.modules.lol.cog import LolCog
 from bogabot.modules.lol.ingest import IngestService
 from bogabot.modules.lol.ranking import RankingService
+from bogabot.modules.lol.riot_key import RiotKeyCog, RiotKeyStore
 from bogabot.modules.lol.scheduler import LolScheduler
+from bogabot.modules.points.cog import PointsCog
+from bogabot.modules.points.store import PointsStore
+from bogabot.modules.sounds.cog import SoundsCog
 from bogabot.riot.client import RiotClient
 from bogabot.scoring.engine import ScoringEngine
 from bogabot.scoring.schema import load_scoring_config
@@ -34,7 +40,7 @@ class BogaBot(commands.Bot):
         # No necesitamos intents privilegiados: los slash commands funcionan con
         # los intents por defecto y el storage solo lee mensajes del propio bot.
         intents = discord.Intents.default()
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(command_prefix="!", intents=intents, tree_cls=BogaCommandTree)
 
         self.settings = settings
 
@@ -45,8 +51,14 @@ class BogaBot(commands.Bot):
 
         # --- Servicios de infraestructura (elegí las implementaciones acá) ---
         self.riot = RiotClient(settings)
+        # La key vigente puede venir de /riot-key (guardada en RIOT_KEY_FILE)
+        # en vez del .env; ver modules/lol/riot_key.py.
+        self.riot_key_store = RiotKeyStore(settings.riot_key_file)
+        self.riot_key_state = self.riot_key_store.resolve(settings.riot_api_key)
+        self.riot.set_api_key(self.riot_key_state.api_key)
         self.scoring = ScoringEngine(load_scoring_config(settings.scoring_config_path))
         self.storage = DiscordChannelStorage(settings)
+        self.points = PointsStore(settings.points_file)
 
         # --- Servicios de dominio (dependen solo de interfaces) ---
         self.ingest = IngestService(self.riot, self.storage, self.storage, settings)
@@ -59,6 +71,11 @@ class BogaBot(commands.Bot):
         # (ej. un módulo de IA) es agregar cogs acá, sin tocar lo existente.
         await self.add_cog(LolCog(self))
         await self.add_cog(LolScheduler(self))
+        await self.add_cog(RiotKeyCog(self, self.riot_key_store, self.riot_key_state))
+        await self.add_cog(SoundsCog(self))
+        if self.settings.points_role_id is not None:
+            await self.add_cog(PointsCog(self))
+        await self.add_cog(HelpCog(self))
 
         if self.settings.log_channel_id is not None:
             self._flush_log_channel.start()

@@ -12,7 +12,7 @@
     grupo que jugaron esa partida.
 
 Ambos loops llaman al mismo IngestService.ingest_all(); el dedup por
-(match_id, puuid) hace que correr los dos sea gratis (uno no duplica lo que
+(match_id, discord_id) hace que correr los dos sea gratis (uno no duplica lo que
 ya trajo el otro).
 
 El scheduler solo ORQUESTA: dispara los servicios de ingesta y ranking. Si

@@ -2,7 +2,7 @@
 
 Para cada jugador vinculado, pide a Riot las partidas desde el inicio de la
 semana en curso (lunes) y guarda las que todavía no estén. El dedup por
-(match_id, puuid) hace que reprocesar sea gratis, así que no necesitamos
+(match_id, discord_id) hace que reprocesar sea gratis, así que no necesitamos
 llevar un cursor: cada corrida pide "desde el lunes" y saltea lo ya guardado.
 
 Regla del grupo: una partida solo cuenta para el ranking si jugaste
@@ -14,10 +14,19 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from dataclasses import replace
+from collections.abc import Awaitable, Callable
 
 from bogabot.core.models import MatchRecord, MatchSummary
 from bogabot.core.timeutils import start_of_week, to_epoch_seconds
-from bogabot.riot.client import RiotAuthError, RiotClient
+from bogabot.riot.client import (
+    NotFoundError,
+    RiotApiError,
+    RiotAuthError,
+    RiotClient,
+    RiotPuuidMismatchError,
+    RiotUnavailableError,
+)
 from bogabot.riot.mapper import map_match, map_match_summary
 from bogabot.settings import Settings
 from bogabot.storage.base import LinkRepository, MatchRepository
@@ -42,19 +51,50 @@ class IngestService:
         self._matches = matches
         self._settings = settings
         self._last_auth_alert: dt.datetime | None = None
+        # Otros módulos (ej. puntos) se enteran de las partidas nuevas sin que
+        # LoL sepa de ellos: se registran acá y reciben los registros guardados.
+        self._listeners: list[Callable[[list[MatchRecord]], Awaitable[None]]] = []
+
+    def add_listener(self, callback: Callable[[list[MatchRecord]], Awaitable[None]]) -> None:
+        self._listeners.append(callback)
+
+    def remove_listener(self, callback: Callable[[list[MatchRecord]], Awaitable[None]]) -> None:
+        if callback in self._listeners:
+            self._listeners.remove(callback)
 
     async def ingest_all(self) -> list[MatchRecord]:
         """Ingiere partidas nuevas de todos los jugadores. Devuelve los
-        registros (partida+jugador) que se guardaron en esta corrida."""
+        registros (partida+jugador) que se guardaron en esta corrida.
+
+        Si Riot no puede desencriptar los puuid guardados (cambió la API key
+        por una de otra app), se re-resuelven por Riot ID y se reintenta una
+        vez en la misma corrida."""
+        new_records: list[MatchRecord] = []
+        stale = await self._ingest_pass(new_records, heal=True)
+        if stale and await self.refresh_puuids():
+            await self._ingest_pass(new_records, heal=False)
+
+        log.info("Ingesta completa: %d partidas-jugador nuevas.", len(new_records))
+        if new_records:
+            for callback in list(self._listeners):
+                try:
+                    await callback(new_records)
+                except Exception:  # noqa: BLE001 - un listener no debe romper la ingesta
+                    log.exception("Error en un listener de partidas nuevas.")
+        return new_records
+
+    async def _ingest_pass(self, new_records: list[MatchRecord], heal: bool) -> bool:
+        """Una pasada por todos los vinculados; agrega lo guardado a
+        `new_records`. Con `heal=True`, ante un puuid de otra app corta y
+        devuelve True para que `ingest_all` los re-resuelva."""
         links = await self._links.get_all_links()
         if not links:
             log.info("No hay jugadores vinculados; nada para ingerir.")
-            return []
+            return False
 
         linked_puuids = {l.puuid for l in links}
         week_start = start_of_week(self._settings.timezone)
         start_epoch = to_epoch_seconds(week_start)
-        new_records: list[MatchRecord] = []
 
         for link in links:
             try:
@@ -63,21 +103,33 @@ class IngestService:
                 # La key es la misma para todos los jugadores: no tiene sentido
                 # seguir pegándole a Riot con el resto del loop.
                 self._alert_expired_key()
-                break
+                return False
+            except RiotUnavailableError as exc:
+                # Problema de red/Riot caído: afecta a todos por igual. Se corta
+                # la corrida sin traceback; el próximo poll lo reintenta.
+                log.warning("Riot no responde (%s); corto la ingesta y reintento en la próxima corrida.", exc)
+                return False
+            except RiotPuuidMismatchError:
+                if heal:
+                    return True
+                log.warning("El puuid de %s sigue sin servir con la key actual; "
+                            "revinculalo con /link-admin.", link.riot_id)
+                continue
             except Exception:  # noqa: BLE001 - un jugador no debe frenar al resto
                 log.exception("Error trayendo IDs de partidas de %s.", link.riot_id)
                 continue
 
-            auth_failed = False
             for match_id in match_ids:
-                if await self._matches.match_exists(match_id, link.puuid):
+                if await self._matches.match_exists(match_id, link.discord_id):
                     continue
                 try:
                     data = await self._riot.get_match(match_id)
                 except RiotAuthError:
                     self._alert_expired_key()
-                    auth_failed = True
-                    break
+                    return False
+                except RiotUnavailableError as exc:
+                    log.warning("Riot no responde trayendo la partida %s (%s); queda para la próxima corrida.", match_id, exc)
+                    continue
                 except Exception:  # noqa: BLE001
                     log.exception("Error trayendo la partida %s.", match_id)
                     continue
@@ -91,12 +143,35 @@ class IngestService:
                     continue  # remake / jugador ausente
                 await self._matches.save_match(record)
                 new_records.append(record)
+        return False
 
-            if auth_failed:
-                break
-
-        log.info("Ingesta completa: %d partidas-jugador nuevas.", len(new_records))
-        return new_records
+    async def refresh_puuids(self) -> int:
+        """Vuelve a pedir el puuid de cada vinculado por su Riot ID con la key
+        actual y actualiza los que cambiaron. Hace falta al pasar a una key de
+        otra app de Riot (ej. de la dev key a la Personal API Key), porque los
+        puuid vienen encriptados por app. Devuelve cuántos se actualizaron."""
+        updated = 0
+        for link in await self._links.get_all_links():
+            try:
+                account = await self._riot.get_account_by_riot_id(link.game_name, link.tag_line)
+            except NotFoundError:
+                log.warning("No encontré %s en Riot (¿cambió de nombre?); revinculalo con /link-admin.",
+                            link.riot_id)
+                continue
+            except RiotApiError as exc:
+                log.warning("No pude re-resolver el puuid de %s (%s).", link.riot_id, exc)
+                continue
+            if account["puuid"] == link.puuid:
+                continue
+            await self._links.save_link(replace(
+                link,
+                puuid=account["puuid"],
+                game_name=account.get("gameName", link.game_name),
+                tag_line=account.get("tagLine", link.tag_line),
+            ))
+            updated += 1
+        log.warning("La API key es de otra app de Riot: actualicé el puuid de %d vinculados.", updated)
+        return updated
 
     async def build_match_summary(self, match_id: str) -> MatchSummary | None:
         """Arma el resumen completo (10 jugadores) de una partida ya
@@ -106,10 +181,18 @@ class IngestService:
         puuid_to_discord = {l.puuid: l.discord_id for l in links}
         try:
             data = await self._riot.get_match(match_id)
+        except RiotUnavailableError as exc:
+            log.warning("Riot no responde armando el resumen de %s (%s).", match_id, exc)
+            return None
         except Exception:  # noqa: BLE001 - una partida no debe frenar al resto
             log.exception("Error trayendo la partida %s para el resumen del aviso.", match_id)
             return None
         return map_match_summary(data, puuid_to_discord)
+
+    def reset_auth_alert(self) -> None:
+        """Se llama al cargar una key nueva: si esa también vence, el aviso
+        sale enseguida en vez de esperar el cooldown de la anterior."""
+        self._last_auth_alert = None
 
     def _alert_expired_key(self) -> None:
         """Loguea (nivel CRITICAL, llega al canal de logs de Discord vía
@@ -123,6 +206,6 @@ class IngestService:
         self._last_auth_alert = now
         log.critical(
             "RIOT_API_KEY vencida o inválida (Riot devolvió 401/403). "
-            "Generá una nueva en https://developer.riotgames.com/, actualizá RIOT_API_KEY "
-            "en el .env y reiniciá el bot. La dev key vence cada 24h."
+            "Generá una nueva en https://developer.riotgames.com/ y cargala con "
+            "`/riot-key` (no hace falta reiniciar). Si es una dev key, vence cada 24h."
         )
