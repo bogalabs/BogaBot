@@ -92,6 +92,7 @@ class Settings:
     lol_role_id: int | None
     match_notify_channel_id: int | None
     match_poll_interval_minutes: int
+    troll_channel_id: int | None  # alertas troll; si falta, van a RANKING_CHANNEL_ID
     # Riot
     riot_api_key: str
     riot_platform: str
@@ -101,6 +102,7 @@ class Settings:
     riot_key_warn_minutes: int
     # Scoring
     scoring_config_path: str
+    trolls_config_path: str
     # Tiempo / scheduler
     timezone: str
     daily_post_hour: int
@@ -174,6 +176,7 @@ class Settings:
             lol_role_id=_optional_int("LOL_ROLE_ID"),
             match_notify_channel_id=_optional_int("MATCH_NOTIFY_CHANNEL_ID"),
             match_poll_interval_minutes=poll_minutes,
+            troll_channel_id=_optional_int("TROLL_CHANNEL_ID"),
             riot_api_key=_require("RIOT_API_KEY"),
             riot_platform=os.getenv("RIOT_PLATFORM", "la2"),
             riot_region=os.getenv("RIOT_REGION", "americas"),
@@ -181,6 +184,7 @@ class Settings:
             riot_key_ttl_hours=max(0, int(os.getenv("RIOT_KEY_TTL_HOURS", "24"))),
             riot_key_warn_minutes=max(0, int(os.getenv("RIOT_KEY_WARN_MINUTES", "120"))),
             scoring_config_path=os.getenv("SCORING_CONFIG_PATH", "config/scoring.yaml"),
+            trolls_config_path=os.getenv("TROLLS_CONFIG_PATH", "config/trolls.yaml"),
             timezone=os.getenv("TIMEZONE", "America/Argentina/Buenos_Aires"),
             daily_post_hour=hour,
             daily_post_minute=minute,

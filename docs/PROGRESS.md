@@ -3,7 +3,7 @@
 Documento **vivo**: actualizarlo a medida que avanza el proyecto. Marcar con
 `[x]` lo hecho y mover items entre secciones. Poner la fecha en cada cambio.
 
-_Última actualización: 2026-08-20 (3)_
+_Última actualización: 2026-09-28_
 
 ---
 
@@ -96,6 +96,31 @@ _Última actualización: 2026-08-20 (3)_
       `build_troll_ranking_embed`) y el aviso de troll consulta el timeline
       de la partida (`RiotClient.get_match_timeline`, nuevo) para mostrar en
       qué minuto murió por primera vez — 2026-08-22
+- [x] **Detector de trolls rehecho** (reemplaza al de arriba, que no
+      avisaba nunca: corría solo en el job diario, cuando el poll de 5 min
+      ya había ingerido todo, y su criterio casi nunca se cumplía) —
+      2026-09-28
+  - Paquete `trolls/` (reglas + `config/trolls.yaml` + motor): ~20 reglas
+    (feeder, AFK, primera sangre, muertes antes del 10, línea perdida al
+    15, delivery al rival, poco daño/KP, visión, control wards, farm,
+    tiempo muerto, ancla del equipo, ejecutado, items vendidos, FF al 15,
+    barrida, pings de "?", último en Arena) con umbrales por modo (Grieta,
+    ARAM, modos caóticos, Arena).
+  - Niveles: alerta troll (`TROLL_CHANNEL_ID`, default rankings) y
+    **papelón histórico a `GENERAL_CHANNEL_ID`** solo si es muy fuerte.
+    Ranked ×1.25, victoria ×0.5. Solo se avisan partidas recientes.
+  - Avisos vía listener de la ingesta: salen desde el poll, el job diario
+    o `/ingest-now`, una sola vez. Troll-o-metro en el aviso de partida.
+  - `MatchRecord` con stats extendidas + datos del timeline (opcionales;
+    los viejos se completan con `/trolls-recalcular`).
+  - Comandos `/trolls`, `/troll-analizar`, `/trolls-reglas`,
+    `/trolls-recalcular`; ranking troll diario (si hubo trolleadas) y
+    "Troll de la semana" los lunes.
+  - Ingesta: lock contra corridas simultáneas (duplicaba avisos), caché
+    de partidas/timelines, no re-baja partidas descartadas en cada poll,
+    margen de 1 día antes del lunes (partidas que cruzan la medianoche).
+  - Tests: mapper con JSON de match-v5 + timeline, reglas, config, ranking
+    troll, ingesta y ruteo de avisos (58 en total).
 
 ## 🚧 En progreso
 - [ ] _(nada activo)_
@@ -131,6 +156,10 @@ _Última actualización: 2026-08-20 (3)_
       `ingest.py`), falta probarlo contra una key realmente vencida.
 - [ ] Registrar la Tarea Programada de Windows para el autorun (comando en
       `scripts/run_bot.ps1`; falta correr `Register-ScheduledTask`).
+- [ ] Detector de trolls en vivo: correr `/trolls-recalcular` una vez en
+      producción, revisar con `/troll-analizar` un par de partidas reales y
+      ajustar `config/trolls.yaml` si avisa de más o de menos. Confirmar que
+      el bot puede escribir en `GENERAL_CHANNEL_ID`.
 
 ### Mejoras de producto/DX
 - [ ] Comando para ver/editar el estado del propio vínculo (`/whoami`).
@@ -159,6 +188,13 @@ _Última actualización: 2026-08-20 (3)_
   aviso en vivo de partida terminada (`notify_job` / `MATCH_NOTIFY_CHANNEL_ID`,
   probado solo con un Riot client simulado) y el logging hacia
   `LOG_CHANNEL_ID`.
+- **Detector de trolls (2026-09-28):** verificado con tests y JSON sintético
+  con la forma de match-v5/timeline; **no** probado aún contra respuestas
+  reales de Riot ni posteando en Discord. Los campos usados
+  (`enemyMissingPings`, `totalTimeSpentDead`, `visionWardsBoughtInGame`,
+  eventos `CHAMPION_KILL`/`ITEM_SOLD`/`ITEM_UNDO`, `participantFrames`)
+  son los documentados por Riot; si alguno viniera distinto, la regla que
+  lo usa simplemente no se dispara (no rompe la ingesta).
 
 ## 🧭 Decisiones clave (resumen; detalle en `CLAUDE.md`)
 - Región LAS (`la2` / `americas`); todas las colas; remakes excluidos.

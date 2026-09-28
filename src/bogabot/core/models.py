@@ -8,7 +8,8 @@ cambia la API de Riot o la capa de storage, estos modelos quedan estables.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from enum import IntEnum
 
 
 def _iso(dt: datetime) -> str:
@@ -17,6 +18,14 @@ def _iso(dt: datetime) -> str:
 
 def _parse_iso(value: str) -> datetime:
     return datetime.fromisoformat(value)
+
+
+def _opt_int(value) -> int | None:
+    return None if value is None else int(value)
+
+
+def _opt_bool(value) -> bool | None:
+    return None if value is None else bool(value)
 
 
 @dataclass
@@ -84,27 +93,66 @@ class MatchRecord:
     opponent_champion: str = ""  # rival de línea (mismo position, equipo contrario) o "" si no aplica
     cs: int = 0  # farm: minions de línea + monstruos de jungla
 
-    def is_troll_game(self) -> bool:
-        """Troleada: KDA menor a 0.5, sin importar si ganaste o perdiste.
-        Si jugaste pésimo es troll aunque tu equipo haya ganado."""
-        kda = (self.kills + self.assists) / max(self.deaths, 1)
-        return kda < 0.5
-
-    def is_carry_game(self) -> bool:
-        """Carreada: ganaste con KDA >= 5 (ej. 10/2/5 = 7.5 → carry)."""
-        kda = (self.kills + self.assists) / max(self.deaths, 1)
-        return self.win and kda >= 5.0
-
-    def is_papelon(self) -> bool:
-        # Pierden la partida antes de los 25 minutos (1500 segundos)
-        return self.game_duration_seconds < 1500 and not self.win
+    # --- Stats extendidas (para el detector de trolls, ver trolls/) --------
+    # Todas opcionales: los registros guardados antes de que existieran no las
+    # tienen (quedan en None) y las reglas que las necesitan se saltean.
+    time_dead_seconds: int | None = None
+    control_wards_bought: int | None = None
+    question_pings: int | None = None  # pings de "?" (enemyMissingPings)
+    placement: int | None = None  # puesto final en Arena (1..8); None en otros modos
+    # Contexto del equipo (sale de los 10 jugadores de la partida).
+    team_kills: int | None = None
+    team_deaths: int | None = None
+    enemy_kills: int | None = None
+    team_damage: int | None = None
+    # Del timeline de la partida (None si no se pudo pedir).
+    first_death_minute: int | None = None
+    deaths_before_10: int | None = None
+    gave_first_blood: bool | None = None
+    executed_deaths: int | None = None  # muertes sin campeón asesino (torre/minions/monstruos)
+    items_sold: int | None = None
+    deaths_to_lane_opponent: int | None = None
+    gold_diff_15: int | None = None  # oro propio - oro del rival de línea al minuto 15
 
     @property
     def dedup_key(self) -> str:
         return f"{self.match_id}:{self.discord_id}"
 
+    @property
+    def kda(self) -> float:
+        return (self.kills + self.assists) / max(self.deaths, 1)
+
+    @property
+    def minutes(self) -> float:
+        return self.game_duration_seconds / 60
+
+    @property
+    def game_end(self) -> datetime:
+        return self.game_creation + timedelta(seconds=self.game_duration_seconds)
+
+    @property
+    def kill_participation(self) -> float | None:
+        if not self.team_kills:
+            return None
+        return (self.kills + self.assists) / self.team_kills
+
+    @property
+    def damage_share(self) -> float | None:
+        if not self.team_damage:
+            return None
+        return self.damage_to_champions / self.team_damage
+
+    @property
+    def has_extended_stats(self) -> bool:
+        """False en registros guardados antes de las stats extendidas."""
+        return self.team_kills is not None
+
+    @property
+    def has_timeline(self) -> bool:
+        return self.deaths_before_10 is not None
+
     def to_dict(self) -> dict:
-        return {
+        data = {
             "match_id": self.match_id,
             "puuid": self.puuid,
             "participant_id": self.participant_id,
@@ -126,6 +174,13 @@ class MatchRecord:
             "vision_score": self.vision_score,
             "cs": self.cs,
         }
+        # Las opcionales solo se escriben si tienen valor: cada registro es un
+        # mensaje de Discord (máx. 2000 caracteres) y los legacy no las tienen.
+        for name in _OPTIONAL_RECORD_FIELDS:
+            value = getattr(self, name)
+            if value is not None:
+                data[name] = value
+        return data
 
     @classmethod
     def from_dict(cls, d: dict) -> "MatchRecord":
@@ -150,7 +205,31 @@ class MatchRecord:
             damage_to_champions=int(d["damage_to_champions"]),
             vision_score=int(d["vision_score"]),
             cs=int(d.get("cs", 0)),
+            time_dead_seconds=_opt_int(d.get("time_dead_seconds")),
+            control_wards_bought=_opt_int(d.get("control_wards_bought")),
+            question_pings=_opt_int(d.get("question_pings")),
+            placement=_opt_int(d.get("placement")),
+            team_kills=_opt_int(d.get("team_kills")),
+            team_deaths=_opt_int(d.get("team_deaths")),
+            enemy_kills=_opt_int(d.get("enemy_kills")),
+            team_damage=_opt_int(d.get("team_damage")),
+            first_death_minute=_opt_int(d.get("first_death_minute")),
+            deaths_before_10=_opt_int(d.get("deaths_before_10")),
+            gave_first_blood=_opt_bool(d.get("gave_first_blood")),
+            executed_deaths=_opt_int(d.get("executed_deaths")),
+            items_sold=_opt_int(d.get("items_sold")),
+            deaths_to_lane_opponent=_opt_int(d.get("deaths_to_lane_opponent")),
+            gold_diff_15=_opt_int(d.get("gold_diff_15")),
         )
+
+
+# Campos opcionales de MatchRecord (se serializan solo si no son None).
+_OPTIONAL_RECORD_FIELDS = (
+    "time_dead_seconds", "control_wards_bought", "question_pings", "placement",
+    "team_kills", "team_deaths", "enemy_kills", "team_damage",
+    "first_death_minute", "deaths_before_10", "gave_first_blood", "executed_deaths",
+    "items_sold", "deaths_to_lane_opponent", "gold_diff_15",
+)
 
 
 @dataclass
@@ -182,9 +261,9 @@ class PlayerStats:
         self.damage_to_champions += m.damage_to_champions
         self.vision_score += m.vision_score
         self.cs += m.cs
-        if m.is_carry_game():
+        if m.win and m.kda >= 5.0:
             self.carry_games += 1
-        if m.is_troll_game():
+        if m.kda < 0.5:
             self.troll_games += 1
         self.duration_seconds += m.game_duration_seconds
         self.champions.append(m.champion)
@@ -285,3 +364,55 @@ class RankingRow:
     display_name: str
     score: float
     stats: PlayerStats
+
+
+class TrollLevel(IntEnum):
+    """Gravedad de una partida según los puntos troll (umbrales en
+    config/trolls.yaml). Define a dónde va el aviso."""
+
+    NONE = 0  # nada que avisar (igual suma puntos al ranking troll)
+    TROLL = 1  # aviso en el canal de trolls
+    PAPELON = 2  # papelón histórico: va a #general
+
+
+@dataclass(frozen=True)
+class TrollFlag:
+    """Un "cargo" detectado en una partida (ej. feeder, FF al 15)."""
+
+    code: str
+    emoji: str
+    title: str
+    detail: str
+    points: int
+
+
+@dataclass
+class TrollVerdict:
+    """Resultado del detector de trolls para UN jugador en UNA partida."""
+
+    record: MatchRecord
+    flags: list[TrollFlag]
+    base_points: int
+    points: int  # ya con multiplicadores (ranked / victoria)
+    level: TrollLevel
+    ranked_bonus: bool = False
+    carried: bool = False  # ganó igual: el equipo lo llevó de mochila
+
+    @property
+    def is_clean(self) -> bool:
+        return not self.flags
+
+
+@dataclass
+class TrollStanding:
+    """Una fila del ranking troll de un período."""
+
+    rank: int
+    discord_id: int
+    display_name: str
+    points: int = 0
+    games: int = 0
+    troll_games: int = 0  # partidas con nivel TROLL o más
+    papelones: int = 0  # partidas con nivel PAPELON
+    flag_counts: dict[str, int] = field(default_factory=dict)  # code -> veces
+    worst: TrollVerdict | None = None  # la partida con más puntos del período
