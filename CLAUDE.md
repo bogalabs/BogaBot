@@ -207,10 +207,17 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   promedio del grupo con `index.prior_games` partidas "fantasma" y con tope
   `index.max_game_points` por partida, para que 1 partida suelta o un
   papelón monstruoso no decidan solos; los de 0 pts van siempre al fondo), así que
-  cambiar el YAML recalcula el historial. Niveles: `levels.troll` → alerta
-  en `TROLL_CHANNEL_ID` (default `RANKING_CHANNEL_ID`); `levels.papelon` →
-  **papelón histórico en `GENERAL_CHANNEL_ID`** (solo lo muy fuerte; si
-  #general falla, cae al canal de trolls). Solo se avisan partidas que
+  cambiar el YAML recalcula el historial. `/trolls-reiniciar` guarda en
+  `TROLLS_STATE_FILE` desde cuándo cuenta el ranking. Avisos: desde
+  `levels.troll`, **una línea anecdótica corta en `GENERAL_CHANNEL_ID`**
+  (`TrollService.build_general_line`: los cargos más "contables" según
+  `STORY_PRIORITY`, cuyos `detail` están escritos como frases) + el detalle
+  compacto en `TROLL_CHANNEL_ID` (default `RANKING_CHANNEL_ID`); desde
+  `levels.papelon` es "trolleada histórica". Si #general falla, la línea
+  cae al canal de trolls. Las situaciones del timeline (base perdida
+  estando lejos, throw, AFK, morir con oro) las calcula `riot/mapper.py`;
+  si se agrega una, subir `TIMELINE_VERSION` para que `/trolls-recalcular`
+  reanalice las partidas viejas. Solo se avisan partidas que
   terminaron hace menos de `alert_max_age_hours`. Ranked multiplica los
   puntos, ganar igual los achica. El job diario postea el ranking troll de
   la semana si hubo trolleadas ese día y los lunes corona al "Troll de la

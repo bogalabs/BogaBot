@@ -1,6 +1,7 @@
 """Servicio de trolls: juzga partidas con el `TrollDetector`, arma el ranking
-troll de un período y los embeds (alerta, papelón histórico, ranking,
-reglamento y análisis de una partida).
+troll de un período y los mensajes: la línea anecdótica para #general, el
+detalle compacto para el canal de trolls, el ranking, el reglamento y el
+análisis de una partida.
 
 No sabe de canales: a dónde va cada aviso lo decide el scheduler (ver
 `LolScheduler._announce_trolls`). Como el detector trabaja sobre los
@@ -9,18 +10,22 @@ los umbrales vigentes de config/trolls.yaml.
 """
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 import random
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import discord
 
 from bogabot.core.models import MatchRecord, TrollLevel, TrollStanding, TrollVerdict
-from bogabot.core.timeutils import now, start_of_day, start_of_month, start_of_week
+from bogabot.core.timeutils import get_tz, now, start_of_day, start_of_month, start_of_week
 from bogabot.riot.mapper import queue_name
 from bogabot.settings import Settings
 from bogabot.storage.base import MatchRepository
 from bogabot.trolls.detector import TrollDetector
-from bogabot.trolls.rules import RULES
+from bogabot.trolls.rules import RULES, STORY_PRIORITY
 from bogabot.trolls.schema import TrollConfig
 
 # Períodos de /trolls: clave -> cómo se nombra en los títulos.
@@ -34,53 +39,14 @@ PERIODS: dict[str, str] = {
 _PODIUM = {1: "👑", 2: "🥈", 3: "🥉"}
 _FIELD_LIMIT = 1024  # máximo de caracteres de un field de embed
 
+log = logging.getLogger(__name__)
+
 # --- Textos (se elige uno por partida, estable: la misma partida da siempre
 # el mismo texto, ver `_rng`) ---------------------------------------------------
-_TROLL_INTROS = (
-    "🚨 Atención, tribunal: {mention} tiene cargos pendientes.",
-    "🚨 {mention}, te estamos mirando.",
-    "🤡 Se abrió una causa contra {mention}.",
-    "📣 Llegó una denuncia contra {mention}. Riot no hace nada, nosotros sí.",
-    "👀 {mention}, ¿querés explicar lo que acaba de pasar?",
-)
-_TROLL_TITLES = (
-    "🚨 ¡ALERTA TROLL! 🚨",
-    "🤡 Se escapó alguien del circo",
-    "🚔 Operativo anti-troll en curso",
-    "🧯 Incendio en la Grieta",
-    "📉 Partida para el olvido",
-)
-_PAPELON_INTROS = (
-    "💀 {mention} acaba de firmar un **PAPELÓN HISTÓRICO**. Que quede en actas.",
-    "📢 Frenen todo: {mention} hizo un papelón de los que se cuentan en los asados.",
-    "🪦 Un minuto de silencio por la dignidad de {mention}.",
-    "🗞️ ÚLTIMO MOMENTO: {mention} protagonizó un papelón que ya es noticia nacional.",
-    "🎖️ {mention} se ganó un lugar en el salón de la fama troll.",
-)
-_PAPELON_TITLES = (
-    "💀 PAPELÓN HISTÓRICO 💀",
-    "🪦 Acá yace la dignidad de {name}",
-    "🗞️ Esto sale en todos los diarios",
-    "🥇 Medalla de oro en papelones",
-    "☢️ Zona de desastre",
-)
-_TAGLINES = (
-    "y la comunidad exige explicaciones.",
-    "y Riot ya está revisando el replay.",
-    "y el equipo todavía lo está procesando.",
-    "y nadie en la call entiende qué pasó.",
-    "y el rival le mandó un 'gg ez' merecido.",
-)
-_ROASTS = (
-    "Veredicto: culpable. Sin derecho a réplica.",
-    "Se aceptan descargos en el canal de voz.",
-    "El /mute all es gratis, lo sabés, ¿no?",
-    "Esto no es personal. Bueno, un poco sí.",
-    "La próxima probá contra bots, de a poco.",
-    "Tu mouse pidió cambio de dueño.",
-    "El reporte ya salió. Mentira. Ojalá.",
-    "Ni el Wi-Fi de tu casa te puede defender de esto.",
-)
+# Titular de la línea de #general según qué tan fuerte fue la trolleada.
+_HEADLINES_SMALL = ("¡Chica trolleada!", "¡Trolleadita!", "¡Se le escapó una trolleada!")
+_HEADLINES_BIG = ("¡Linda trolleada!", "¡Flor de trolleada!", "¡Tremenda trolleada!")
+_HEADLINES_HISTORIC = ("¡Trolleada histórica!", "¡Papelón histórico!", "¡Esto queda en los libros!")
 
 
 def _rng(record: MatchRecord) -> random.Random:
@@ -93,10 +59,44 @@ def _names_list(names: list[str], limit: int = _FIELD_LIMIT) -> str:
 
 
 class TrollService:
-    def __init__(self, matches: MatchRepository, detector: TrollDetector, settings: Settings) -> None:
+    def __init__(self, matches: MatchRepository, detector: TrollDetector, settings: Settings,
+                 state_file: str | None = None) -> None:
         self._matches = matches
         self._detector = detector
         self._settings = settings
+        # Desde cuándo cuenta el ranking troll (ver /trolls-reiniciar). Se
+        # guarda en un JSON chiquito (TROLLS_STATE_FILE) para sobrevivir reinicios.
+        self._state_path = Path(state_file) if state_file else None
+        self._reset_at = self._load_reset()
+
+    def _load_reset(self) -> datetime | None:
+        if self._state_path is None or not self._state_path.exists():
+            return None
+        try:
+            raw = json.loads(self._state_path.read_text(encoding="utf-8")).get("ranking_reset_at")
+            return datetime.fromisoformat(raw) if raw else None
+        except (ValueError, OSError, AttributeError):
+            log.warning("No pude leer %s; el ranking troll cuenta desde siempre.", self._state_path)
+            return None
+
+    @property
+    def reset_at(self) -> datetime | None:
+        return self._reset_at
+
+    async def reset_ranking(self, when: datetime | None = None) -> datetime:
+        """Reinicia el ranking troll: desde `when` (default ahora) cuenta de
+        cero. Las partidas anteriores quedan guardadas pero no suman."""
+        self._reset_at = when or datetime.now(timezone.utc)
+        if self._state_path is not None:
+            data = json.dumps({"ranking_reset_at": self._reset_at.isoformat()})
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(self._state_path.write_text, data, "utf-8")
+        return self._reset_at
+
+    def _since_reset(self, records: list[MatchRecord]) -> list[MatchRecord]:
+        if self._reset_at is None:
+            return records
+        return [r for r in records if r.game_creation >= self._reset_at]
 
     @property
     def config(self) -> TrollConfig:
@@ -115,7 +115,7 @@ class TrollService:
     # --- Rankings -----------------------------------------------------------
     def _aggregate(self, records: list[MatchRecord]) -> list[TrollStanding]:
         by_player: dict[int, TrollStanding] = {}
-        for r in sorted(records, key=lambda r: r.game_creation):
+        for r in sorted(self._since_reset(records), key=lambda r: r.game_creation):
             v = self._detector.evaluate(r)
             s = by_player.get(r.discord_id)
             if s is None:
@@ -221,18 +221,28 @@ class TrollService:
         return "🟥" * filled + "⬛" * (10 - filled)
 
     @staticmethod
-    def _flags_text(verdict: TrollVerdict) -> str:
+    def _flags_text(verdict: TrollVerdict, limit: int | None = None, titles: bool = True) -> str:
+        """Un cargo por línea. `limit` corta los que sobran ("…y N más")."""
         if verdict.is_clean:
             return "Ninguno. Partida limpia. 😇"
         lines: list[str] = []
         for i, f in enumerate(verdict.flags):
-            line = f"{f.emoji} **{f.title}** — {f.detail} `+{f.points}`"
+            text = f"**{f.title}** — {f.detail}" if titles else f.detail
+            line = f"{f.emoji} {text} `+{f.points}`"
             rest = len(verdict.flags) - i
-            if len("\n".join([*lines, line])) > _FIELD_LIMIT - 30:
-                lines.append(f"…y {rest} cargo{'s' if rest > 1 else ''} más.")
+            if (limit is not None and i >= limit) or len("\n".join([*lines, line])) > _FIELD_LIMIT - 30:
+                lines.append(f"…y {rest} más.")
                 break
             lines.append(line)
         return "\n".join(lines)
+
+    @staticmethod
+    def anecdote(verdict: TrollVerdict, max_parts: int = 2) -> str:
+        """Los cargos más "contables" de la partida, en una o dos frases:
+        "nos tiraban la base y estaba farmeando la jungla. Encima, murió 12 veces"."""
+        flags = sorted(verdict.flags, key=lambda f: (-STORY_PRIORITY.get(f.code, 0), -f.points))
+        parts = [f.detail for f in flags[:max_parts]]
+        return ". Encima, ".join(parts)
 
     def _meter_text(self, verdict: TrollVerdict) -> str:
         c = self.config
@@ -264,82 +274,81 @@ class TrollService:
             lines.append(f"{who} — **{v.points} pts** {emojis}{tag}")
         return "\n".join(lines)[:_FIELD_LIMIT]
 
-    # --- Embeds ------------------------------------------------------------
-    def build_alert(self, verdict: TrollVerdict, standing: TrollStanding | None,
-                    players: int) -> tuple[str, discord.Embed]:
-        """Mensaje (texto con la mención + embed) de alerta troll o papelón."""
+    # --- Mensajes -----------------------------------------------------------
+    def build_general_line(self, verdict: TrollVerdict) -> str:
+        """Una línea corta y anecdótica para #general, ej.:
+        "🤡 **¡Chica trolleada!** @Lauti nos tiraban la base y estaba
+        farmeando la jungla. _(Lee Sin 1/12/2)_"."""
         r = verdict.record
         rng = _rng(r)
-        mention = f"<@{r.discord_id}>"
+        c = self.config
         if verdict.level >= TrollLevel.PAPELON:
-            content = rng.choice(_PAPELON_INTROS).format(mention=mention)
-            title = rng.choice(_PAPELON_TITLES).format(name=r.game_name)
-            color = discord.Color.dark_red()
+            emoji, headline = "💀", rng.choice(_HEADLINES_HISTORIC)
+        elif verdict.points >= (c.troll_level + c.papelon_level) / 2:
+            emoji, headline = "🤡", rng.choice(_HEADLINES_BIG)
         else:
-            content = rng.choice(_TROLL_INTROS).format(mention=mention)
-            title = rng.choice(_TROLL_TITLES)
-            color = discord.Color.orange()
+            emoji, headline = "🤡", rng.choice(_HEADLINES_SMALL)
+        story = self.anecdote(verdict)
+        return (f"{emoji} **{headline}** <@{r.discord_id}> {story}. "
+                f"_({r.champion} {r.kills}/{r.deaths}/{r.assists})_")
 
+    def build_alert(self, verdict: TrollVerdict, standing: TrollStanding | None,
+                    players: int) -> tuple[str | None, discord.Embed]:
+        """Detalle compacto de la trolleada, para el canal de trolls. No
+        etiqueta (la mención ya sale en la línea de #general)."""
+        r = verdict.record
+        historic = verdict.level >= TrollLevel.PAPELON
         vs = f" vs {r.opponent_champion}" if r.opponent_champion else ""
         embed = discord.Embed(
-            title=title,
-            description=f"**{r.game_name}** jugó **{r.champion}**{vs} {rng.choice(_TAGLINES)}\n{self._score_line(r)}",
-            color=color,
+            title=f"{'💀 Trolleada histórica' if historic else '🤡 Trolleada'} de {r.game_name} · {verdict.points} pts",
+            description=f"**{r.champion}**{vs} · {self._score_line(r)}",
+            color=discord.Color.dark_red() if historic else discord.Color.orange(),
             timestamp=r.game_end,
         )
-        embed.add_field(name="📋 Cargos", value=self._flags_text(verdict), inline=False)
-        embed.add_field(name="🤡 Troll-o-metro", value=self._meter_text(verdict), inline=False)
+        embed.add_field(name="Cargos", value=self._flags_text(verdict, limit=5, titles=False), inline=False)
+        notes = []
+        if verdict.ranked_bonus:
+            notes.append(f"ranked ×{self.config.ranked_multiplier:g}")
+        if verdict.carried:
+            notes.append(f"ganaron igual ×{self.config.win_multiplier:g}")
         if standing is not None:
-            crown = " 👑" if standing.rank == 1 else ""
-            embed.add_field(
-                name="📆 En la semana",
-                value=(f"Índice troll **{standing.index:.1f}** {self.tier(standing.index)} "
-                       f"({standing.points} pts en {standing.games} partidas) · "
-                       f"puesto **#{standing.rank}** de {players}{crown}\n"
-                       f"🚨 {standing.troll_games} trolleadas · 💀 {standing.papelones} papelones"),
-                inline=False,
-            )
-        embed.set_footer(text=rng.choice(_ROASTS))
-        return content, embed
+            notes.append(f"índice semanal {standing.index:.1f} (#{standing.rank} de {players})")
+        if notes:
+            embed.set_footer(text=" · ".join(notes))
+        return None, embed
 
     def build_standings_embed(self, rows: list[TrollStanding], period: str) -> discord.Embed:
         embed = discord.Embed(title=f"🤡 Ranking troll {PERIODS.get(period, '')}".strip(),
                               color=discord.Color.orange())
-        embed.set_footer(text=("Índice troll = puntos por partida, suavizado hacia el promedio del grupo: "
-                               "no importa cuántas jugaste, pero 1 partida suelta no alcanza. "
-                               "Tendencia vs. el período anterior. Mirá /trolls-reglas."))
+        footer = "Índice = puntos troll por partida (jugar más no suma). /trolls-reglas"
+        if self._reset_at is not None:
+            footer += f" · Cuenta desde el {self._reset_at.astimezone(get_tz(self._settings.timezone)):%d/%m}"
+        embed.set_footer(text=footer)
         guilty = [s for s in rows if s.points > 0]
         clean = [s for s in rows if s.points == 0]
         if not rows:
-            embed.description = "No hay partidas registradas en este período. Sospechoso. 🤔"
+            embed.description = "No hay partidas en este período. 🦗"
             return embed
         if not guilty:
-            embed.description = "Nadie trolleó. Todos santos. 😇 (Por ahora.)"
+            embed.description = "Nadie trolleó. Todos santos. 😇"
         else:
             blocks: list[str] = []
             for s in guilty[:10]:
                 medal = _PODIUM.get(s.rank, f"`#{s.rank}`")
-                trend = f" · {self.trend(s)}" if period != "all" else ""
-                lines = [f"{medal} **{s.display_name}** — índice **{s.index:.1f}** {self.tier(s.index)}{trend}",
-                         f"{s.points} pts en {s.games} partida{'s' if s.games > 1 else ''} "
-                         f"(promedio {s.average:.1f}, {s.troll_rate * 100:.0f}% trolleadas)"]
-                counts = []
+                trend = f" {self.trend(s)}" if period != "all" else ""
+                facts = [f"{s.games} partida{'s' if s.games > 1 else ''}"]
                 if s.troll_games:
-                    counts.append(f"🚨 {s.troll_games} trolleada{'s' if s.troll_games > 1 else ''}")
+                    facts.append(f"🚨 {s.troll_games}")
                 if s.papelones:
-                    counts.append(f"💀 {s.papelones} {'papelones' if s.papelones > 1 else 'papelón'}")
+                    facts.append(f"💀 {s.papelones}")
                 if s.flag_counts:
-                    code, times = max(s.flag_counts.items(), key=lambda kv: kv[1])
+                    code = max(s.flag_counts.items(), key=lambda kv: kv[1])[0]
                     spec = RULES.get(code)
                     if spec is not None:
-                        counts.append(f"especialidad {spec.emoji} {spec.title} (×{times})")
-                if counts:
-                    lines.append(" · ".join(counts))
-                if s.worst is not None:
-                    w = s.worst.record
-                    lines.append(f"Peor: `{w.kills}/{w.deaths}/{w.assists}` con {w.champion} ({s.worst.points} pts)")
-                blocks.append("\n".join(lines))
-            embed.description = "\n\n".join(blocks)
+                        facts.append(f"{spec.emoji} {spec.title}")
+                blocks.append(f"{medal} **{s.display_name}** — **{s.index:.1f}** {self.tier(s.index)}{trend}\n"
+                              f"{' · '.join(facts)}")
+            embed.description = "\n".join(blocks)
         if clean:
             embed.add_field(name="😇 Limpios", value=_names_list([s.display_name for s in clean]), inline=False)
         return embed
@@ -358,15 +367,11 @@ class TrollService:
         c = self.config
         general = f"<#{self._settings.general_channel_id}>"
         header = (
-            "Después de cada partida se juzga a cada jugador del grupo con estas reglas "
-            "y se suman los puntos de los cargos:\n"
-            f"• **{c.troll_level}+ pts** → 🚨 alerta troll\n"
-            f"• **{c.papelon_level}+ pts** → 💀 papelón histórico en {general}\n"
-            f"• En ranked ×{c.ranked_multiplier:g} · si igual ganaron ×{c.win_multiplier:g}\n"
-            "El ranking troll (`/trolls`) ordena por **índice**: puntos por partida, así que "
-            "jugar mucho no te hunde ni te salva. Para que 1 partida suelta no decida, cada uno "
-            f"arranca con {c.index_prior_games:g} partidas con el promedio del grupo y una partida "
-            f"cuenta como mucho {c.index_max_game_points:g} pts.\n\n"
+            "Cada partida suma los puntos de sus cargos (ranked "
+            f"×{c.ranked_multiplier:g}, si igual ganaron ×{c.win_multiplier:g}).\n"
+            f"• **{c.troll_level}+ pts** → 🤡 trolleada: una línea en {general} + detalle en el canal de trolls\n"
+            f"• **{c.papelon_level}+ pts** → 💀 trolleada histórica\n"
+            "• `/trolls` ordena por **índice** (puntos por partida): jugar más no suma.\n\n"
         )
         lines = [
             f"{spec.emoji} **{spec.title}** (+{int(cfg.params['points'])}) — {spec.description}"

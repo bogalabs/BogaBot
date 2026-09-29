@@ -113,6 +113,15 @@ class MatchRecord:
     items_sold: int | None = None
     deaths_to_lane_opponent: int | None = None
     gold_diff_15: int | None = None  # oro propio - oro del rival de línea al minuto 15
+    # Situaciones del timeline (v2): posiciones, edificios y objetivos.
+    base_absent: int | None = None  # estructuras de la base propia perdidas mientras estaba lejos y vivo
+    base_absent_farming: str | None = None  # "jungla"/"línea" si farmeaba mientras caía la base
+    throw_deaths: int | None = None  # veces que murió primero y enseguida perdieron Barón/Ancestral/nexo
+    throw_objective: str | None = None  # qué perdieron la primera vez (para la anécdota)
+    afk_minutes: int | None = None  # racha más larga de minutos quieto, vivo y sin ganar experiencia
+    rich_deaths: int | None = None  # muertes con mucho oro sin gastar encima
+    max_gold_on_death: int | None = None
+    timeline_version: int | None = None  # versión del análisis de timeline aplicado (ver mapper)
 
     @property
     def dedup_key(self) -> str:
@@ -220,6 +229,14 @@ class MatchRecord:
             items_sold=_opt_int(d.get("items_sold")),
             deaths_to_lane_opponent=_opt_int(d.get("deaths_to_lane_opponent")),
             gold_diff_15=_opt_int(d.get("gold_diff_15")),
+            base_absent=_opt_int(d.get("base_absent")),
+            base_absent_farming=d.get("base_absent_farming"),
+            throw_deaths=_opt_int(d.get("throw_deaths")),
+            throw_objective=d.get("throw_objective"),
+            afk_minutes=_opt_int(d.get("afk_minutes")),
+            rich_deaths=_opt_int(d.get("rich_deaths")),
+            max_gold_on_death=_opt_int(d.get("max_gold_on_death")),
+            timeline_version=_opt_int(d.get("timeline_version")),
         )
 
 
@@ -229,6 +246,8 @@ _OPTIONAL_RECORD_FIELDS = (
     "team_kills", "team_deaths", "enemy_kills", "team_damage",
     "first_death_minute", "deaths_before_10", "gave_first_blood", "executed_deaths",
     "items_sold", "deaths_to_lane_opponent", "gold_diff_15",
+    "base_absent", "base_absent_farming", "throw_deaths", "throw_objective",
+    "afk_minutes", "rich_deaths", "max_gold_on_death", "timeline_version",
 )
 
 

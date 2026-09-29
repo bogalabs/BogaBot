@@ -153,6 +153,7 @@ si pusiste `DISCORD_GUILD_ID`).
 | `GENERAL_CHANNEL_ID` | Canal general: ahí van los **papelones históricos** del detector de trolls. |
 | `TROLL_CHANNEL_ID` | Canal de alertas troll y ranking troll (opcional; default `RANKING_CHANNEL_ID`). |
 | `TROLLS_CONFIG_PATH` | Config del detector de trolls (default `config/trolls.yaml`). |
+| `TROLLS_STATE_FILE` | Desde cuándo cuenta el ranking troll, lo escribe `/trolls-reiniciar` (default `data/trolls_state.json`). |
 | `DEV_ROLE_ID` | Rol habilitado para comandos de administración (`/link-admin`). |
 | `ADMIN_CHANNEL_ID` | Canal donde se pueden correr esos comandos (opcional). |
 | `PLAYER_ROLE_ID` | Rol de jugador/miembro; solo afecta qué ve `/help` y `/ayuda`. |
@@ -261,6 +262,8 @@ aparte `sshserver` (fuera de este repo).
   partida (por defecto la última guardada) y por qué suma o no. Sirve para
   calibrar los umbrales.
 - `/trolls-reglas` — qué detecta el bot y cuántos puntos suma cada cosa.
+- `/trolls-reiniciar` — (solo rol dev, en `ADMIN_CHANNEL_ID`) el ranking troll
+  arranca de cero desde ahora (las partidas viejas quedan guardadas).
 - `/trolls-recalcular` — (solo rol dev, en `ADMIN_CHANNEL_ID`) vuelve a
   pedir a Riot las partidas guardadas antes del detector nuevo para
   completarles las stats y el timeline. Corre en segundo plano.
@@ -295,45 +298,49 @@ aparte `sshserver` (fuera de este repo).
 
 ## Detector de trolls 🤡
 
-Después de cada partida, cada jugador del grupo se juzga con ~20 reglas
-(`src/bogabot/trolls/rules.py`): feeder, KDA trágico, AFK (0 kills y 0
-asistencias), primera sangre regalada, muertes antes del minuto 10, línea
-perdida por oro al 15, muertes a manos del rival de línea, poco daño o
-participación, visión nula, cero control wards, farm bajo, tiempo muerto,
-"ancla" del equipo, ejecutado por torre/minions, items vendidos (inteo), FF
-antes del 20, barrida en kills, spam de pings de "?", último en Arena. Cada
-cargo suma puntos troll; en ranked se multiplican y si igual ganaron se
-achican (lo llevaron de mochila). Los umbrales cambian según el modo (ARAM y
-modos caóticos toleran más muertes; las reglas de línea son solo de la
-Grieta).
+Después de cada partida, cada jugador del grupo se juzga con ~25 reglas
+(`src/bogabot/trolls/rules.py`). Situaciones que detecta:
 
-Según el total de la partida:
+- **Del timeline (qué pasó y cuándo):** "nos tiraban la base y estaba
+  farmeando" (inhibidores/torres del nexo cayendo mientras él, vivo, estaba
+  lejos), *throw* (murió primero y enseguida perdieron Barón, Ancestral o
+  el nexo), AFK (minutos quieto sin ganar experiencia), primera sangre
+  regalada, muertes antes del minuto 10, línea perdida por oro al 15,
+  "delivery" al rival de línea, ejecutado por torres/minions, items
+  vendidos (inteo), morir con la plata encima.
+- **De las stats de la partida:** feeder, KDA trágico, 0 kills y 0
+  asistencias, pacifista, poco daño o participación, visión nula, cero
+  control wards, farm bajo, mucho tiempo muerto, "ancla" del equipo, FF
+  antes del 20, barrida en kills, spam de pings de "?", último en Arena.
 
-| Puntos | Qué pasa |
+Cada cargo suma puntos troll; en ranked se multiplican y si igual ganaron se
+achican. Los umbrales cambian según el modo (ARAM y modos caóticos toleran
+más muertes; las reglas de línea y de base son solo de la Grieta).
+
+| Puntos de la partida | Qué pasa |
 |---|---|
 | menos de `levels.troll` (6) | Nada aparte; suma al ranking troll y se ve en el troll-o-metro del aviso de partida. |
-| `levels.troll`+ | 🚨 **Alerta troll** en `TROLL_CHANNEL_ID` (o el de rankings), etiquetando al jugador. |
-| `levels.papelon`+ (18) | 💀 **Papelón histórico** en `GENERAL_CHANNEL_ID`. Solo lo muy fuerte (inteo, AFK, 1/14 con FF en ranked...). |
+| `levels.troll`+ | 🤡 **Una línea corta en `GENERAL_CHANNEL_ID`**, etiquetando al jugador, con la anécdota: *"¡Chica trolleada! @jugador nos tiraban la base y estaba farmeando la jungla. (Lee Sin 1/12/2)"*. El detalle (cargos y puntos) va compacto a `TROLL_CHANNEL_ID` (o el de rankings). |
+| `levels.papelon`+ (18) | 💀 Lo mismo, como **"¡Trolleada histórica!"**. |
 
-Solo se avisan partidas recientes (`alert_max_age_hours`, 36 h): si el bot
-estuvo caído o alguien se vinculó hoy, lo viejo suma al ranking pero no
-spamea. Todo se ajusta en **`config/trolls.yaml`** sin tocar código (puntos,
-umbrales por modo, apagar reglas, niveles, multiplicadores); como el
-ranking troll se calcula al vuelo, un cambio ahí recalcula también el
-historial. El ranking ordena por **índice troll** (puntos por partida),
-no por el total: el que la trollea fuerte en 2 partidas queda arriba del
-que jugó 18 y trolleó 2. Para que 1 partida suelta no decida por azar, el
-índice se suaviza hacia el promedio del grupo (`index.prior_games`) y una
-sola partida cuenta como mucho `index.max_game_points`. `/trolls` muestra
-además una categoría (😇 Santo → 💀 Leyenda troll) y la tendencia contra
-el período anterior (📈/📉). Además, el job diario postea cómo va el ranking troll de la
-semana si hubo trolleadas ese día, y los lunes corona al **Troll de la
-semana**.
+Solo se avisan partidas recientes (`alert_max_age_hours`, 36 h). Todo se
+ajusta en **`config/trolls.yaml`** sin tocar código; el ranking troll se
+calcula al vuelo, así que un cambio ahí recalcula también el historial.
 
-Para las reglas de línea, primera sangre e items vendidos la ingesta pide
-también el *timeline* de cada partida (una consulta más a Riot por partida).
-Las partidas guardadas antes de este detector no lo tienen: un dev las
-completa con `/trolls-recalcular`.
+**Ranking troll (`/trolls`)**: ordena por **índice troll** (puntos por
+partida), no por el total, así que jugar más no suma: el que la trollea
+fuerte en 2 partidas queda arriba del que jugó 18 y trolleó 2. Para que 1
+partida suelta no decida por azar, el índice se suaviza hacia el promedio
+del grupo (`index.prior_games`) y una sola partida cuenta como mucho
+`index.max_game_points`. Muestra una categoría (😇 Santo → 💀 Leyenda
+troll) y la tendencia contra el período anterior. `/trolls-reiniciar`
+(dev) lo pone en cero desde ese momento (se guarda en `TROLLS_STATE_FILE`).
+El job diario postea cómo va la semana si hubo trolleadas y los lunes
+corona al **Troll de la semana**.
+
+Las reglas del timeline usan una consulta más a Riot por partida. Las
+partidas guardadas antes (o analizadas con una versión vieja) se completan
+con `/trolls-recalcular`.
 
 ## Cómo se calcula el ranking
 Cada partida se guarda como un registro por jugador, **pero solo si jugaste

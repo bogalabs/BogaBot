@@ -3,7 +3,7 @@
 Documento **vivo**: actualizarlo a medida que avanza el proyecto. Marcar con
 `[x]` lo hecho y mover items entre secciones. Poner la fecha en cada cambio.
 
-_Última actualización: 2026-09-28_
+_Última actualización: 2026-09-29_
 
 ---
 
@@ -128,6 +128,19 @@ _Última actualización: 2026-09-28_
       partida (`index.max_game_points`, default 30). `/trolls` muestra
       categoría (😇 Santo → 💀 Leyenda troll), % de partidas trolleadas y
       tendencia vs. el período anterior — 2026-09-29
+
+- [x] Detector de trolls v3 — 2026-09-29
+  - Situaciones nuevas del timeline: "nos tiraban la base y estaba
+    farmeando" (estructuras de la base perdidas estando vivo y lejos),
+    throw (murió primero y perdieron Barón/Ancestral/nexo), AFK (minutos
+    quieto sin ganar XP), morir con +3.000 de oro encima.
+  - #general recibe una línea corta y anecdótica por cada trolleada; el
+    detalle compacto va al canal de trolls. Ranking y reglamento más cortos.
+  - `/trolls-reiniciar` (dev) pone el ranking troll en cero
+    (`TROLLS_STATE_FILE`). `TIMELINE_VERSION` para que `/trolls-recalcular`
+    reanalice partidas viejas.
+  - Incluye el índice troll (nunca había llegado al repo: el PR #7 se
+    mergeó vacío).
 
 ## 🚧 En progreso
 - [ ] _(nada activo)_

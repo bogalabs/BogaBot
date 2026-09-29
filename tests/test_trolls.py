@@ -149,6 +149,21 @@ class TestTrollRules(unittest.TestCase):
         # Sin stats de equipo ni timeline: solo las reglas que se pueden evaluar.
         self.assertEqual(_codes(legacy), {"feeder", "early_ff"})
 
+    def test_new_timeline_situations(self):
+        base = _detector().evaluate(record(base_absent=2, base_absent_farming="jungla"))
+        self.assertEqual([(f.code, f.detail) for f in base.flags],
+                         [("base_absent", "nos tiraban la base y estaba farmeando la jungla")])
+        self.assertNotIn("base_absent", _codes(record(base_absent=1)))  # 1 sola estructura no alcanza
+        self.assertNotIn("base_absent", _codes(record(base_absent=3, win=True)))  # si ganaron, no
+        throw = next(f for f in _detector().evaluate(record(throw_deaths=2, throw_objective="el Barón")).flags)
+        self.assertEqual((throw.code, throw.points), ("throw", 4))
+        self.assertIn("perdimos el Barón (2 veces)", throw.detail)
+        afk = _detector().evaluate(record(afk_minutes=4))
+        self.assertEqual([f.code for f in afk.flags], ["afk"])
+        self.assertIn("4 minutos quieto", afk.flags[0].detail)
+        self.assertNotIn("afk", _codes(record(afk_minutes=2)))
+        self.assertIn("hoarder", _codes(record(rich_deaths=2, max_gold_on_death=4100)))
+
     def test_every_rule_has_points_and_profiles(self):
         for code, spec in RULES.items():
             self.assertEqual(code, spec.code)
@@ -271,7 +286,8 @@ class TestTrollService(unittest.TestCase):
         self.assertEqual([s.display_name for s in rows], ["Heavy", "Mucho", "Grinder"])
         self.assertAlmostEqual(by_name["Grinder"].average, by_name["Grinder"].points / 18)
         embed = self.service.build_standings_embed(rows, "week")
-        self.assertIn("índice", embed.description)
+        self.assertIn("Índice", embed.footer.text)
+        self.assertTrue(embed.description.startswith("👑 **Heavy**"))
 
     def _service_with(self, **index) -> TrollService:
         cfg = replace(TrollConfig.default(), **index)
@@ -317,6 +333,23 @@ class TestTrollService(unittest.TestCase):
         self.assertEqual(self.service.tier(2), "😬 Sospechoso")
         self.assertEqual(self.service.tier(6), "💀 Leyenda troll")
 
+    def test_reset_ranking_starts_from_zero_and_persists(self):
+        self._save(match_id="LA2_OLD", discord_id=1, game_name="Viejo", kills=1, deaths=15, assists=2,
+                   game_creation=self.week_start + timedelta(minutes=10))
+        self._save(match_id="LA2_NEW", discord_id=2, game_name="Nuevo", kills=1, deaths=12, assists=2,
+                   game_creation=self.week_start + timedelta(hours=3))
+        state = Path(tempfile.mkdtemp()) / "sub" / "trolls_state.json"
+        settings = SimpleNamespace(timezone=_TZ, general_channel_id=999)
+        service = TrollService(self.store, _detector(), settings, state_file=str(state))  # type: ignore[arg-type]
+        asyncio.run(service.reset_ranking(self.week_start + timedelta(hours=1)))
+        for period in ("week", "all"):
+            names = [s.display_name for s in asyncio.run(service.standings(period))]
+            self.assertEqual(names, ["Nuevo"])
+        # Sobrevive un reinicio del bot (se relee del archivo).
+        again = TrollService(self.store, _detector(), settings, state_file=str(state))  # type: ignore[arg-type]
+        self.assertEqual(again.reset_at, service.reset_at)
+        self.assertIn("Cuenta desde", again.build_standings_embed([], "week").footer.text)
+
     def test_is_fresh(self):
         now = datetime.now(timezone.utc)
         self.assertTrue(self.service.is_fresh(record(game_creation=now - timedelta(hours=2))))
@@ -335,18 +368,29 @@ class TestTrollService(unittest.TestCase):
     def test_alert_embeds(self):
         troll = self.service.evaluate(record(kills=1, deaths=12, assists=2, discord_id=7, game_name="Pepe"))
         content, embed = self.service.build_alert(troll, None, 4)
-        self.assertIn("<@7>", content)
-        self.assertEqual(embed.color.value, 0xE67E22)  # naranja: alerta común
-        # Determinístico: la misma partida da el mismo texto.
-        self.assertEqual(self.service.build_alert(troll, None, 4)[0], content)
+        self.assertIsNone(content)  # el detalle no etiqueta: la mención va en #general
+        self.assertEqual(embed.color.value, 0xE67E22)  # naranja: trolleada común
+        self.assertIn("Pepe", embed.title)
 
         papelon = self.service.evaluate(_papelon_record(discord_id=7, game_name="Pepe"))
-        content, embed = self.service.build_alert(papelon, None, 4)
-        self.assertIn("<@7>", content)
+        _, embed = self.service.build_alert(papelon, None, 4)
         self.assertEqual(embed.color.value, discord_dark_red())
-        for field in embed.fields:
-            self.assertLessEqual(len(field.value), 1024)
-        self.assertIn("ranked", embed.fields[1].value)
+        self.assertLessEqual(embed.fields[0].value.count("\n"), 5)  # máx 5 cargos + "…y N más"
+        self.assertIn("ranked", embed.footer.text)
+
+    def test_general_line_is_short_and_anecdotal(self):
+        base = self.service.evaluate(record(
+            discord_id=7, champion="Lee Sin", kills=1, deaths=12, assists=2,
+            base_absent=2, base_absent_farming="jungla"))
+        line = self.service.build_general_line(base)
+        self.assertIn("<@7>", line)
+        self.assertIn("nos tiraban la base y estaba farmeando la jungla", line)  # la anécdota va primero
+        self.assertIn("(Lee Sin 1/12/2)", line)
+        self.assertNotIn("\n", line)
+        self.assertLess(len(line), 250)
+        self.assertEqual(self.service.build_general_line(base), line)  # estable
+        historic = self.service.build_general_line(self.service.evaluate(_papelon_record(discord_id=7)))
+        self.assertTrue(historic.startswith("💀"))
 
     def test_analysis_and_rules_embeds(self):
         v = self.service.evaluate(record())

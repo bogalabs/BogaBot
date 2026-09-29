@@ -155,6 +155,8 @@ def map_match(
             record,
             timeline,
             opponent_participant_id=int(opponent.get("participantId", 0)) if opponent else None,
+            team_id=int(team_id or 0),
+            teammates={int(p.get("participantId", 0)) for p in team},
         )
     return record
 
@@ -170,13 +172,33 @@ def _opt_int(participant: dict, key: str) -> int | None:
 
 # --- Timeline (match-v5 /timeline) -------------------------------------------
 _MINUTE_MS = 60_000
+# Versión del análisis de timeline. Subirla cuando se agregan datos nuevos:
+# `/trolls-recalcular` completa los registros con una versión anterior.
+TIMELINE_VERSION = 2
+# Posición aproximada de cada nexo en la Grieta (coordenadas del mapa).
+_NEXUS_POSITION = {100: (1550, 1660), 200: (13200, 13200)}
+# Más lejos que esto del propio nexo = "no estaba defendiendo la base".
+_BASE_ABSENT_DISTANCE = 7000
+# Estructuras de la base (si caen y no estás, es "nos tiraban la base").
+_BASE_TOWERS = {"NEXUS_TURRET", "BASE_TURRET"}
+# Si morís primero y en este lapso pierden un objetivo grande, es un "throw".
+_THROW_WINDOW_MS = 60_000
+_THROW_OBJECTIVES = {"BARON_NASHOR": "el Barón", "ELDER_DRAGON": "el Dragón Ancestral"}
+# Oro sin gastar encima al morir para considerarlo "ahorrista".
+_RICH_DEATH_GOLD = 3000
+# AFK: se movió menos que esto entre dos frames y no ganó experiencia.
+_AFK_MAX_MOVE = 150
+# Ventana en la que se considera que el jugador sigue muerto (aprox.).
+_DEAD_WINDOW_MS = 45_000
 
 
-def _apply_timeline(record: MatchRecord, timeline: dict, opponent_participant_id: int | None) -> None:
+def _apply_timeline(record: MatchRecord, timeline: dict, opponent_participant_id: int | None,
+                    team_id: int = 0, teammates: set[int] | None = None) -> None:
     """Completa en `record` los datos que salen del timeline. Si el JSON viene
     raro, deja todos esos campos en None en vez de romper la ingesta."""
     try:
-        stats = _timeline_stats(timeline, record.participant_id, opponent_participant_id)
+        stats = _timeline_stats(timeline, record.participant_id, opponent_participant_id,
+                                team_id, teammates or {record.participant_id})
     except (AttributeError, TypeError, ValueError, KeyError):
         log.warning("Timeline ilegible para %s; sigo sin esos datos.", record.match_id)
         return
@@ -184,14 +206,16 @@ def _apply_timeline(record: MatchRecord, timeline: dict, opponent_participant_id
         setattr(record, name, value)
 
 
-def _timeline_stats(timeline: dict, me: int, opponent: int | None) -> dict:
-    frames = timeline["info"]["frames"]
+def _timeline_stats(timeline: dict, me: int, opponent: int | None,
+                    team_id: int, teammates: set[int]) -> dict:
+    frames = sorted(timeline["info"]["frames"], key=lambda f: int(f.get("timestamp", 0)))
     events = sorted(
         (e for f in frames for e in f.get("events", [])),
         key=lambda e: int(e.get("timestamp", 0)),
     )
     kills = [e for e in events if e.get("type") == "CHAMPION_KILL"]
     my_deaths = [e for e in kills if e.get("victimId") == me]
+    death_times = [int(e.get("timestamp", 0)) for e in my_deaths]
 
     sold = sum(1 for e in events if e.get("type") == "ITEM_SOLD" and e.get("participantId") == me)
     # Un "deshacer" de una venta (beforeId 0 -> afterId item) la anula.
@@ -201,17 +225,138 @@ def _timeline_stats(timeline: dict, me: int, opponent: int | None) -> dict:
         and not e.get("beforeId") and e.get("afterId")
     )
     stats = {
-        "first_death_minute": int(my_deaths[0].get("timestamp", 0)) // _MINUTE_MS if my_deaths else None,
-        "deaths_before_10": sum(1 for e in my_deaths if int(e.get("timestamp", 0)) < 10 * _MINUTE_MS),
+        "first_death_minute": death_times[0] // _MINUTE_MS if death_times else None,
+        "deaths_before_10": sum(1 for t in death_times if t < 10 * _MINUTE_MS),
         "gave_first_blood": bool(kills) and kills[0].get("victimId") == me,
         # killerId 0 = lo mató algo que no es un campeón (torre, minions, monstruos).
         "executed_deaths": sum(1 for e in my_deaths if int(e.get("killerId", 0)) <= 0),
         "items_sold": max(0, sold - undone),
+        "timeline_version": TIMELINE_VERSION,
     }
     if opponent:
         stats["deaths_to_lane_opponent"] = sum(1 for e in my_deaths if e.get("killerId") == opponent)
         stats["gold_diff_15"] = _gold_diff_at(frames, me, opponent, minute=15)
+
+    stats.update(_base_absence(frames, events, me, team_id, death_times))
+    stats.update(_throws(events, kills, me, team_id, teammates))
+    stats.update(_rich_deaths(frames, death_times, me))
+    stats["afk_minutes"] = _afk_minutes(frames, me, death_times)
     return stats
+
+
+def _pframe(frame: dict | None, pid: int) -> dict | None:
+    return (frame or {}).get("participantFrames", {}).get(str(pid))
+
+
+def _frame_near(frames: list[dict], t: int, max_gap: int = _MINUTE_MS) -> dict | None:
+    if not frames:
+        return None
+    frame = min(frames, key=lambda f: abs(int(f.get("timestamp", 0)) - t))
+    return frame if abs(int(frame.get("timestamp", 0)) - t) <= max_gap else None
+
+
+def _frame_before(frames: list[dict], t: int) -> dict | None:
+    before = [f for f in frames if int(f.get("timestamp", 0)) <= t]
+    return before[-1] if before else None
+
+
+def _dead_at(death_times: list[int], t: int) -> bool:
+    return any(0 <= t - d <= _DEAD_WINDOW_MS for d in death_times)
+
+
+def _base_losses(events: list[dict], team_id: int) -> list[int]:
+    """Momentos en que el equipo perdió una estructura de su base
+    (torres del nexo/de inhibidor, inhibidores y el nexo mismo)."""
+    times = []
+    for e in events:
+        if e.get("type") == "BUILDING_KILL" and e.get("teamId") == team_id and (
+            e.get("buildingType") == "INHIBITOR_BUILDING" or e.get("towerType") in _BASE_TOWERS
+        ):
+            times.append(int(e.get("timestamp", 0)))
+        elif e.get("type") == "GAME_END" and e.get("winningTeam") not in (None, team_id):
+            times.append(int(e.get("timestamp", 0)))
+    return times
+
+
+def _base_absence(frames: list[dict], events: list[dict], me: int, team_id: int,
+                  death_times: list[int]) -> dict:
+    """Cuántas estructuras de la base cayeron mientras el jugador estaba vivo
+    y lejos, y si en ese momento estaba farmeando (jungla o línea)."""
+    nexus = _NEXUS_POSITION.get(team_id)
+    if nexus is None:
+        return {}
+    absent, farming = 0, None
+    for t in _base_losses(events, team_id):
+        if _dead_at(death_times, t):
+            continue
+        pos = (_pframe(_frame_near(frames, t), me) or {}).get("position")
+        if not pos:
+            continue
+        distance = ((pos.get("x", 0) - nexus[0]) ** 2 + (pos.get("y", 0) - nexus[1]) ** 2) ** 0.5
+        if distance <= _BASE_ABSENT_DISTANCE:
+            continue
+        absent += 1
+        if farming is None:
+            farming = _farming_between(frames, me, t - 90_000, t + 30_000)
+    return {"base_absent": absent, "base_absent_farming": farming}
+
+
+def _farming_between(frames: list[dict], me: int, start: int, end: int) -> str | None:
+    before, after = _pframe(_frame_before(frames, start), me), _pframe(_frame_near(frames, end), me)
+    if not before or not after:
+        return None
+    if int(after.get("jungleMinionsKilled", 0)) - int(before.get("jungleMinionsKilled", 0)) >= 2:
+        return "jungla"
+    if int(after.get("minionsKilled", 0)) - int(before.get("minionsKilled", 0)) >= 3:
+        return "línea"
+    return None
+
+
+def _throws(events: list[dict], kills: list[dict], me: int, team_id: int,
+            teammates: set[int]) -> dict:
+    """Veces que el jugador fue el PRIMERO de su equipo en morir justo antes
+    de que perdieran un objetivo grande (Barón, Ancestral o el nexo)."""
+    objectives: list[tuple[int, str]] = []
+    for e in events:
+        if e.get("type") == "ELITE_MONSTER_KILL" and e.get("killerTeamId") not in (None, team_id):
+            name = _THROW_OBJECTIVES.get(e.get("monsterSubType")) or _THROW_OBJECTIVES.get(e.get("monsterType"))
+            if name:
+                objectives.append((int(e.get("timestamp", 0)), name))
+        elif e.get("type") == "GAME_END" and e.get("winningTeam") not in (None, team_id):
+            objectives.append((int(e.get("timestamp", 0)), "el nexo"))
+    count, first = 0, None
+    for t, name in objectives:
+        team_deaths = [e for e in kills if e.get("victimId") in teammates
+                       and 0 <= t - int(e.get("timestamp", 0)) <= _THROW_WINDOW_MS]
+        if team_deaths and team_deaths[0].get("victimId") == me:
+            count += 1
+            first = first or name
+    return {"throw_deaths": count, "throw_objective": first}
+
+
+def _rich_deaths(frames: list[dict], death_times: list[int], me: int) -> dict:
+    golds = [int((_pframe(_frame_before(frames, t), me) or {}).get("currentGold", 0)) for t in death_times]
+    rich = [g for g in golds if g >= _RICH_DEATH_GOLD]
+    return {"rich_deaths": len(rich), "max_gold_on_death": max(golds, default=0)}
+
+
+def _afk_minutes(frames: list[dict], me: int, death_times: list[int]) -> int:
+    """Racha más larga de minutos en que el jugador, vivo, no se movió ni
+    ganó experiencia. Se saltean los 2 primeros minutos (compras iniciales)."""
+    best = streak = 0
+    for prev, cur in zip(frames[2:], frames[3:]):
+        a, b = _pframe(prev, me), _pframe(cur, me)
+        t0, t1 = int(prev.get("timestamp", 0)), int(cur.get("timestamp", 0))
+        if not a or not b or not a.get("position") or not b.get("position"):
+            streak = 0
+            continue
+        dead = any(t0 - _MINUTE_MS <= d <= t1 for d in death_times)
+        dx = a["position"].get("x", 0) - b["position"].get("x", 0)
+        dy = a["position"].get("y", 0) - b["position"].get("y", 0)
+        idle = (dx * dx + dy * dy) ** 0.5 < _AFK_MAX_MOVE and int(b.get("xp", 0)) == int(a.get("xp", 0))
+        streak = streak + 1 if idle and not dead else 0
+        best = max(best, streak)
+    return best
 
 
 def _gold_diff_at(frames: list[dict], me: int, other: int, minute: int) -> int | None:

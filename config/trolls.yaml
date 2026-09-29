@@ -83,6 +83,15 @@ rules:
   executed:         { points: 1, min_deaths: 2 }
   # 💸 Items vendidos en la partida (normal: 1-3; muchos = inteo).
   item_seller:      { points: 4, min_items: 6 }
+  # 🏚️ Estructuras de la base (inhibidores, torres del nexo, el nexo) perdidas
+  # mientras él estaba vivo y lejos de la base. Solo derrotas.
+  base_absent:      { points: 4, min_structures: 2 }
+  # 💥 Murió primero de su equipo y en menos de 1 minuto perdieron Barón/Ancestral/nexo.
+  throw:            { points: 3, min_throws: 1, repeat_bonus: 1 }
+  # 💤 Minutos seguidos quieto, vivo y sin ganar experiencia.
+  afk:              { points: 5, min_minutes: 3 }
+  # 💰 Muertes con más de 3.000 de oro sin gastar encima.
+  hoarder:          { points: 1, min_deaths: 2 }
   # 🏳️ Derrota por rendición antes de max_minutes (solo Grieta).
   early_ff:         { points: 2, max_minutes: 20 }
   # 🧹 Derrota con esta diferencia de kills o más.

@@ -150,3 +150,93 @@ class TestRecordSerialization(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _positional_timeline(me_positions: dict[int, tuple[int, int]], events: list[dict],
+                         minutes: int = 32, gold: dict[int, int] | None = None,
+                         jungle: dict[int, int] | None = None, xp_frozen: range | None = None) -> dict:
+    """Timeline con posición/oro/farm/xp del participante 3 por minuto."""
+    frames = []
+    for m in range(minutes + 1):
+        pframes = {}
+        for pid in range(1, 11):
+            pf = {"participantId": pid, "totalGold": 500 + m * 400, "currentGold": 300,
+                  "position": {"x": 7000, "y": 7000}, "xp": m * 500,
+                  "minionsKilled": m * 6, "jungleMinionsKilled": 0}
+            if pid == 3:
+                pf["position"] = dict(zip("xy", me_positions.get(m, (7000, 7000))))
+                pf["currentGold"] = (gold or {}).get(m, 300)
+                pf["jungleMinionsKilled"] = (jungle or {}).get(m, 0)
+                if xp_frozen and m in xp_frozen:
+                    pf["xp"] = xp_frozen.start * 500
+            pframes[str(pid)] = pf
+        frames.append({"timestamp": m * 60_000, "participantFrames": pframes,
+                       "events": events if m == 0 else []})
+    return {"info": {"frames": frames}}
+
+
+class TestTimelineSituations(unittest.TestCase):
+    def _lost_match(self) -> dict:
+        return match_json(overrides={pid: {"win": pid > 5} for pid in range(1, 11)})
+
+    def test_base_absent_while_farming_jungle(self):
+        # Minuto 30-31: caen el inhibidor y el nexo del azul; el 3 está en la
+        # jungla roja (lejos) sumando campamentos.
+        events = [
+            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000, "teamId": 100,
+             "buildingType": "INHIBITOR_BUILDING"},
+            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000 + 20_000, "teamId": 100,
+             "buildingType": "TOWER_BUILDING", "towerType": "NEXUS_TURRET"},
+            {"type": "GAME_END", "timestamp": 31 * 60_000, "winningTeam": 200},
+        ]
+        far = {m: (11000, 9000) for m in range(28, 33)}
+        jungle = {m: (m - 27) * 4 for m in range(28, 33)}
+        r = map_match(self._lost_match(), "puuid-3", 33,
+                      timeline=_positional_timeline(far, events, jungle=jungle))
+        self.assertEqual(r.base_absent, 3)
+        self.assertEqual(r.base_absent_farming, "jungla")
+
+    def test_not_absent_when_defending_or_dead(self):
+        events = [
+            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000, "teamId": 100,
+             "buildingType": "INHIBITOR_BUILDING"},
+            kill(30 * 60_000 - 10_000, killer=8, victim=3),  # muerto cuando cae
+            {"type": "GAME_END", "timestamp": 31 * 60_000, "winningTeam": 200},
+        ]
+        home = {m: (2500, 2500) for m in range(28, 33)}
+        r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline(home, events))
+        self.assertEqual(r.base_absent, 0)
+
+    def test_throw_only_if_died_first(self):
+        events = [
+            kill(25 * 60_000, killer=8, victim=3),  # muere primero...
+            kill(25 * 60_000 + 10_000, killer=7, victim=1),
+            {"type": "ELITE_MONSTER_KILL", "timestamp": 25 * 60_000 + 40_000, "killerTeamId": 200,
+             "monsterType": "BARON_NASHOR"},  # ...y cae el Barón
+            kill(29 * 60_000, killer=9, victim=2),  # acá murió primero otro
+            kill(29 * 60_000 + 5_000, killer=9, victim=3),
+            {"type": "ELITE_MONSTER_KILL", "timestamp": 29 * 60_000 + 30_000, "killerTeamId": 200,
+             "monsterType": "DRAGON", "monsterSubType": "ELDER_DRAGON"},
+        ]
+        r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline({}, events))
+        self.assertEqual(r.throw_deaths, 1)
+        self.assertEqual(r.throw_objective, "el Barón")
+        other = map_match(self._lost_match(), "puuid-2", 22, timeline=_positional_timeline({}, events))
+        self.assertEqual(other.throw_deaths, 1)
+        self.assertEqual(other.throw_objective, "el Dragón Ancestral")
+
+    def test_rich_deaths(self):
+        events = [kill(12 * 60_000 + 30_000, 8, 3), kill(20 * 60_000 + 10_000, 8, 3), kill(5 * 60_000, 8, 3)]
+        r = map_match(self._lost_match(), "puuid-3", 33,
+                      timeline=_positional_timeline({}, events, gold={12: 3400, 20: 4100, 5: 900}))
+        self.assertEqual(r.rich_deaths, 2)
+        self.assertEqual(r.max_gold_on_death, 4100)
+
+    def test_afk_streak(self):
+        still = {m: (400, 400) for m in range(10, 16)}
+        r = map_match(self._lost_match(), "puuid-3", 33,
+                      timeline=_positional_timeline(still, [], xp_frozen=range(10, 16)))
+        self.assertEqual(r.afk_minutes, 5)
+        moving = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline({}, []))
+        self.assertEqual(moving.afk_minutes, 0)
+        self.assertEqual(moving.timeline_version, 2)
