@@ -33,6 +33,11 @@ def start_of_week(tz_name: str, ref: datetime | None = None) -> datetime:
     return midnight - timedelta(days=days_since_monday)
 
 
+def start_of_month(tz_name: str, ref: datetime | None = None) -> datetime:
+    """Día 1 del mes en curso a las 00:00, en hora local."""
+    return start_of_day(tz_name, ref).replace(day=1)
+
+
 def is_week_start_day(tz_name: str, ref: datetime | None = None) -> bool:
     """True si hoy (hora local) es lunes, el día en que arranca la semana."""
     tz = get_tz(tz_name)

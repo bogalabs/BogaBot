@@ -58,19 +58,26 @@ src/bogabot/
 ├── scoring/
 │   ├── schema.py           # carga/valida config/scoring.yaml
 │   └── engine.py           # puntaje compuesto (normaliza + pondera)
+├── trolls/                 # detector de trolls (lógica pura, sobre MatchRecord)
+│   ├── rules.py            # catálogo de reglas (RULES) con sus params por defecto
+│   ├── schema.py           # carga/valida config/trolls.yaml
+│   └── detector.py         # TrollDetector.evaluate(record) -> TrollVerdict
 └── modules/lol/            # feature LoL como cog autocontenido
-    ├── cog.py              # slash commands /link /unlink /link-admin /ingest-now /ranking /help /ayuda
-    ├── ingest.py           # ingesta de partidas (devuelve list[MatchRecord] nuevos)
+    ├── cog.py              # slash commands /link /unlink /link-admin /ingest-now /ranking /trolls /troll-analizar ...
+    ├── ingest.py           # ingesta de partidas + timeline (devuelve list[MatchRecord] nuevos)
     ├── ranking.py          # agrega stats + arma embeds
-    └── scheduler.py        # daily_job (1x/día) + notify_job (cada N min, avisos en vivo)
+    ├── trolls.py           # TrollService: ranking troll por período + embeds de alertas
+    └── scheduler.py        # daily_job + notify_job + listener de ingesta (avisos y alertas troll)
 config/scoring.yaml         # fórmula del ranking, editable sin tocar código
+config/trolls.yaml          # umbrales/puntos del detector de trolls, editable sin tocar código
 tests/                      # tests de lógica pura (sin red ni tokens)
 ```
 
 ### Cómo fluye una dependencia
 `bot.py` es el **único** lugar que instancia implementaciones concretas
-(`DiscordChannelStorage`, `RiotClient`, `ScoringEngine`) y las inyecta en los
-servicios (`IngestService`, `RankingService`) y cogs. Todo lo demás recibe
+(`DiscordChannelStorage`, `RiotClient`, `ScoringEngine`, `TrollDetector`) y
+las inyecta en los servicios (`IngestService`, `RankingService`,
+`TrollService`) y cogs. Todo lo demás recibe
 interfaces por constructor. Para swapear el storage a SQLite/Postgres:
 escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
 
@@ -88,6 +95,13 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
 - **Agregar una métrica de scoring:** sumarla en `scoring/schema.py`
   (`SUPPORTED_METRICS`) + una property en `core/models.py::PlayerStats`, y
   listarla en `config/scoring.yaml`. Cero cambios en el motor.
+- **Agregar una regla troll:** función `_check_*` + `RuleSpec` en
+  `trolls/rules.py` (`RULES`), con sus params por defecto (siempre
+  `points`). Si necesita un dato nuevo de Riot: campo opcional (default
+  `None`) en `MatchRecord` + extraerlo en `riot/mapper.py`, y la regla
+  devuelve `None` si falta (registros viejos). Documentarla en
+  `config/trolls.yaml` (un test chequea que estén todas). Si castiga lo
+  mismo que otra, usar `supersedes` para que no se sumen las dos.
 - **Agregar un slash command LoL:** método nuevo en `modules/lol/cog.py`.
 - **Restringir un comando por rol/canal:** el ID de rol o canal sale de
   `settings.py` (nunca hardcodeado), y el chequeo se hace al inicio del
@@ -102,20 +116,18 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
 
 - **Región:** LAS → `RIOT_PLATFORM=la2`, `RIOT_REGION=americas` (routing de
   account-v1 y match-v5).
-- **Colas contadas:** los rankings diario/semanal solo cuentan **partidas Ranked**
-  (Flex `440` + Solo/Duo `420`), definidas en `RANKED_QUEUE_IDS` en
-  `riot/mapper.py`. Se **excluyen** normals, ARAM y modos rotativos. También
-  se excluyen remakes (< 5 min o early surrender) en `riot/mapper.py`.
-  El recap "Trolls y Pros" (`previous_week_rows` en `ranking.py`) solo cuenta
-  **Ranked Flex** (`RANKED_FLEX_QUEUE_ID = 440`), para medir el juego serio
-  del grupo.
-- **Carreadas y troleadas:** `MatchRecord.is_carry_game()` detecta partidas
-  donde el jugador carreo (victoria + KDA ≥ 5). `MatchRecord.is_troll_game()`
-  detecta trolleos (KDA < 0.5, sin importar si ganó o perdió ni si hubo FF). `PlayerStats` acumula
-  `carry_games` y `troll_games`, que se exponen como métricas `carry_count` y
-  `troll_count` para el motor de scoring. El `config/scoring.yaml` los pesa
-  como las métricas dominantes. El scheduler postea alertas 🔥 CARREADA y
-  🚨 ALERTA TROLL por cada partida detectada, junto con rankings históricos.
+- **API key de Riot:** producción usa una **Personal API Key** (no vence),
+  con `RIOT_KEY_TTL_HOURS=0`. La key nunca va en el código: sale de
+  `RIOT_API_KEY` o de `/riot-key` (solo dev), que la valida, la aplica en
+  caliente y la guarda en `RIOT_KEY_FILE` (ver `modules/lol/riot_key.py`).
+  Con una dev key (vence cada 24h), `RIOT_KEY_TTL_HOURS=24` activa el aviso
+  previo en `ADMIN_CHANNEL_ID`. Errores de red/5xx contra Riot se reintentan
+  con backoff en `riot/client.py` (`RiotUnavailableError` si persisten).
+- **Colas contadas:** todas (incluye ARAM/rotativos) para el ranking diario/
+  semanal. Se **excluyen remakes** (< 5 min o early surrender) en
+  `riot/mapper.py`. **Excepción:** el recap "Trolls y Pros" (`previous_week_rows`
+  en `ranking.py`) solo cuenta **Ranked Flex** (`RANKED_FLEX_QUEUE_ID = 440`
+  en `riot/mapper.py`), para medir el juego serio del grupo.
 - **Tipo de partida y rival de línea en los avisos:** `riot/mapper.py::queue_name`
   traduce `queue_id` a un nombre legible (Ranked Flex, ARAM, etc.) y
   `MatchRecord.opponent_champion` guarda al rival de línea (mismo
@@ -140,14 +152,29 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
 - **Solo cuentan partidas jugadas con otro vinculado:** en `ingest.py`, antes
   de mapear una partida se chequea `metadata.participants` del JSON de
   match-v5 contra el set de puuids vinculados; si hay menos de 2 vinculados
-  en esa partida (o sea, jugaste sin nadie del grupo), se descarta.
+  en esa partida (o sea, jugaste sin nadie del grupo), se descarta. Las
+  descartadas (y los remakes) se recuerdan en memoria (`_skipped`, junto con
+  el set de vinculados de ese momento) para no re-bajarlas en cada poll; si
+  cambian los vínculos se re-evalúan.
+- **Ingesta robusta:** `ingest_all()` corre bajo un `asyncio.Lock` (los dos
+  loops y `/ingest-now` pueden coincidir; sin lock se guardaba y avisaba
+  dos veces la misma partida). Partidas y timelines se cachean (LRU) para
+  no pedir la misma partida una vez por vinculado. Se piden partidas desde
+  **un día antes del lunes** (`_LOOKBACK_MARGIN`) para no perder las que
+  cruzan la medianoche del domingo. Si el timeline no responde, la partida
+  se reintenta en la próxima corrida (hasta `_TIMELINE_MAX_TRIES`) y después
+  se guarda sin timeline.
 - **Semana = lunes 00:00 hora local** (`TIMEZONE`, default Buenos Aires).
 - **Job 1×/día** a `DAILY_POST_HOUR:DAILY_POST_MINUTE` (recomendado cerca de
   medianoche, ej. 23:55, para que el "ranking de hoy" no salga vacío si se
   juega de noche): ingesta → ranking diario; los lunes, recap semanal
   "Trolls y Pros" de la semana que cerró.
-- **Dedup por `(match_id, puuid)`**, sin cursor: cada corrida pide "desde el
-  lunes" y saltea lo ya guardado. Por esto `/ingest-now` (comando manual de
+- **Dedup por `(match_id, discord_id)`**, sin cursor: cada corrida pide "desde el
+  lunes" y saltea lo ya guardado. **No** por puuid: Riot encripta el puuid
+  según la app de la API key, así que cambia si se cambia de key (ej. dev →
+  Personal). Ante un `400 Exception decrypting` (`RiotPuuidMismatchError`),
+  `IngestService.refresh_puuids()` re-resuelve los puuid por Riot ID y la
+  ingesta reintenta sola. Gracias al dedup, `/ingest-now` (comando manual de
   ingesta, solo rol dev) es idempotente: correrlo varias veces no duplica nada.
 - **Storage actual = Discord** (mensajes JSON en canal privado + índice en
   memoria hidratado al arrancar). Es O(n) mensajes; migrar a DB real cuando
@@ -156,14 +183,36 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   rol (`DEV_ROLE_ID`) y opcionalmente por canal (`ADMIN_CHANNEL_ID`), ambos
   configurables por `.env`. `/help` y `/ayuda` muestran comandos distintos
   según el rol de quien pregunta (`DEV_ROLE_ID` vs `PLAYER_ROLE_ID`).
-- **Avisos de partida terminada:** `LolScheduler.notify_job` (solo si hay
-  `MATCH_NOTIFY_CHANNEL_ID`) llama a `ingest_all()` cada
-  `MATCH_POLL_INTERVAL_MINUTES` y postea un mensaje por partida nueva,
-  agrupando por `match_id` y etiquetando a cada jugador del grupo que
-  participó (con su resultado individual, por si quedaron en equipos
-  contrarios). `daily_job` llama al mismo helper (`_notify_new_matches`)
-  como red de seguridad. El dedup existente hace que correr `ingest_all()`
-  desde los dos loops sea gratis.
+- **Avisos de partida terminada:** `LolScheduler.notify_job` llama a
+  `ingest_all()` cada `MATCH_POLL_INTERVAL_MINUTES` (siempre, para que las
+  alertas troll salgan al toque; el aviso de partida en sí solo se postea
+  si hay `MATCH_NOTIFY_CHANNEL_ID`). Los avisos NO los postea el loop: el
+  scheduler es **listener** de `IngestService` (`_on_new_matches`), así que
+  cualquier ingesta (los dos loops o `/ingest-now`) postea un mensaje por
+  partida nueva, agrupando por `match_id` y etiquetando a cada jugador del
+  grupo que participó (con su resultado individual, por si quedaron en
+  equipos contrarios) + el troll-o-metro. Un match_id ya avisado no se
+  repite (`_notified`). El dedup + lock de la ingesta hacen que correr
+  `ingest_all()` desde los dos loops sea gratis.
+- **Detector de trolls:** `trolls/` es lógica pura sobre `MatchRecord`
+  (reglas en `trolls/rules.py`, umbrales en `config/trolls.yaml`). Por eso
+  `MatchRecord` guarda stats extendidas (contexto del equipo, tiempo muerto,
+  pings, control wards) y datos del **timeline** (primera sangre, muertes
+  antes del 10, oro vs. rival al 15, items vendidos, ejecuciones), todos
+  opcionales: los registros viejos quedan en `None` y esas reglas se
+  saltean (`/trolls-recalcular` los completa vía `update_match`). El
+  veredicto NO se persiste: el ranking troll se calcula al vuelo, así que
+  cambiar el YAML recalcula el historial. Niveles: `levels.troll` → alerta
+  en `TROLL_CHANNEL_ID` (default `RANKING_CHANNEL_ID`); `levels.papelon` →
+  **papelón histórico en `GENERAL_CHANNEL_ID`** (solo lo muy fuerte; si
+  #general falla, cae al canal de trolls). Solo se avisan partidas que
+  terminaron hace menos de `alert_max_age_hours`. Ranked multiplica los
+  puntos, ganar igual los achica. El job diario postea el ranking troll de
+  la semana si hubo trolleadas ese día y los lunes corona al "Troll de la
+  semana". Esto reemplaza al viejo `is_troll_game`/`is_papelon`, que solo
+  corría en el job diario (para entonces el poll ya había ingerido todo y
+  nunca avisaba) y cuyo criterio (KDA < 0.5 **y** FF antes del 20) casi
+  nunca se cumplía.
 - **Logging a Discord:** `DiscordLogHandler` (en `core/`) se engancha al
   logger `"bogabot"` (no a `discord.*`, para no capturar el ruido de la
   librería) cuando hay `LOG_CHANNEL_ID`. Solo encola texto formateado en

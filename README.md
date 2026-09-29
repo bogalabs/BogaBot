@@ -7,7 +7,7 @@ opcionalmente, cada pocos minutos para avisar en vivo), calcula un puntaje
 configurable por jugador y publica rankings (diario y "Trolls y Pros" semanal)
 en Discord.
 
-## Arquitectura (por capas, cada una reemplazable)
+## Arquitectura (por capas, cada una reemplazable) 
 
 ```
 run.py                      # entrypoint: python run.py
@@ -29,12 +29,18 @@ src/bogabot/
 ├── scoring/
 │   ├── schema.py           # carga/valida config/scoring.yaml
 │   └── engine.py           # calcula el puntaje compuesto
+├── trolls/                 # detector de trolls (lógica pura)
+│   ├── rules.py            # catálogo de reglas (feeder, FF al 15, AFK...)
+│   ├── schema.py           # carga/valida config/trolls.yaml
+│   └── detector.py         # corre las reglas -> cargos, puntos y nivel
 └── modules/lol/            # feature LoL (un "cog" autocontenido)
-    ├── cog.py              # /link /unlink /link-admin /ingest-now /ranking /help /ayuda
-    ├── ingest.py           # ingesta de partidas
+    ├── cog.py              # /link /unlink /link-admin /ingest-now /ranking /trolls ...
+    ├── ingest.py           # ingesta de partidas (+ timeline para el detector)
     ├── ranking.py          # agrega stats + arma embeds
-    └── scheduler.py        # job diario + chequeo de partidas nuevas (discord.ext.tasks)
+    ├── trolls.py           # ranking troll + embeds de alertas/papelones
+    └── scheduler.py        # job diario + chequeo de partidas nuevas + avisos
 config/scoring.yaml         # fórmula del ranking, editable sin tocar código
+config/trolls.yaml          # umbrales y puntos del detector de trolls
 ```
 
 **Ideas clave**
@@ -101,6 +107,8 @@ En tu server, creá (y después copiá el ID de cada uno con click derecho):
 |---|---|---|
 | Un canal de texto **privado** (que solo vea el bot, nadie más escribe ahí) | canal | `STORAGE_CHANNEL_ID` |
 | Un canal público para los rankings | canal | `RANKING_CHANNEL_ID` |
+| El canal general del server (ahí van los papelones históricos) | canal | `GENERAL_CHANNEL_ID` |
+| *(Opcional)* Canal de alertas troll (si no, van al de rankings) | canal | `TROLL_CHANNEL_ID` |
 | *(Opcional)* Canal de avisos de partida terminada | canal | `MATCH_NOTIFY_CHANNEL_ID` |
 | *(Opcional)* Canal de logs del bot | canal | `LOG_CHANNEL_ID` |
 | *(Opcional)* Canal donde correr comandos de admin | canal | `ADMIN_CHANNEL_ID` |
@@ -116,10 +124,15 @@ También necesitás el ID del server (click derecho sobre el ícono del server
 > — no debería verlo ni escribir en él nadie más que el bot.
 
 ### 5. Conseguir la API key de Riot
-[developer.riotgames.com](https://developer.riotgames.com/) → generá una
-**Development API Key** (gratis, pero vence cada 24h — hay que regenerarla
-seguido a mano) o pedí una **Production Key** si querés algo estable. Va en
-`RIOT_API_KEY`. Ajustá también `RIOT_PLATFORM`/`RIOT_REGION` según la región
+[developer.riotgames.com](https://developer.riotgames.com/) → **Register
+Product → Personal API Key**. Es la que usa el bot en producción: gratis,
+pensada para proyectos chicos como este y **no vence** (Riot la aprueba a
+mano, puede tardar unos días). Va en `RIOT_API_KEY`, con
+`RIOT_KEY_TTL_HOURS=0` para que el bot no avise vencimientos.
+
+Para probar mientras tanto sirve la **Development API Key** del dashboard,
+pero vence cada 24h: dejá `RIOT_KEY_TTL_HOURS=24` (default) y el bot avisa
+antes de que venza; la nueva se carga con `/riot-key` sin reiniciar. Ajustá también `RIOT_PLATFORM`/`RIOT_REGION` según la región
 de tu grupo (ver tabla de variables abajo).
 
 ### 6. Completar el `.env.staging` (o `.env.production`) y correr
@@ -137,12 +150,18 @@ si pusiste `DISCORD_GUILD_ID`).
 | `DISCORD_GUILD_ID` | ID del server (opcional; registra los comandos al instante). |
 | `STORAGE_CHANNEL_ID` | Canal privado que el bot usa como base de datos. |
 | `RANKING_CHANNEL_ID` | Canal donde publica los rankings. |
+| `GENERAL_CHANNEL_ID` | Canal general: ahí van los **papelones históricos** del detector de trolls. |
+| `TROLL_CHANNEL_ID` | Canal de alertas troll y ranking troll (opcional; default `RANKING_CHANNEL_ID`). |
+| `TROLLS_CONFIG_PATH` | Config del detector de trolls (default `config/trolls.yaml`). |
 | `DEV_ROLE_ID` | Rol habilitado para comandos de administración (`/link-admin`). |
 | `ADMIN_CHANNEL_ID` | Canal donde se pueden correr esos comandos (opcional). |
 | `PLAYER_ROLE_ID` | Rol de jugador/miembro; solo afecta qué ve `/help` y `/ayuda`. |
 | `MATCH_NOTIFY_CHANNEL_ID` | Canal donde se avisa cuando termina una partida (opcional). |
-| `MATCH_POLL_INTERVAL_MINUTES` | Cada cuántos minutos se chequean partidas nuevas para ese aviso. |
-| `RIOT_API_KEY` | API key de Riot (la dev key vence cada 24h). |
+| `MATCH_POLL_INTERVAL_MINUTES` | Cada cuántos minutos se chequean partidas nuevas (para ese aviso y las alertas troll). |
+| `RIOT_API_KEY` | API key de Riot. En producción, la **Personal API Key** (no vence); la dev key vence cada 24h. Se puede rotar en caliente con `/riot-key`. |
+| `RIOT_KEY_FILE` | Dónde se guarda la key cargada con `/riot-key` (default `data/riot_key.json`). |
+| `RIOT_KEY_TTL_HOURS` | Horas de vida de la key para el recordatorio (default `24`, para la dev key; con la Personal API Key poné `0` = no vence, sin recordatorio). |
+| `RIOT_KEY_WARN_MINUTES` | Cuántos minutos antes de vencer se avisa (default `120`). |
 | `RIOT_PLATFORM` | Plataforma (LAS = `la2`). |
 | `RIOT_REGION` | Routing regional (LAS/LAN/NA → `americas`). |
 | `TIMEZONE` | Zona horaria para los cortes de día/semana. |
@@ -201,6 +220,33 @@ vez, cada una con su propio server de prueba personal (su propio
 `.env.staging`), y validar contra el staging "oficial" del equipo antes de
 mergear a `main`.
 
+## Producción: el server del grupo
+
+Producción corre en un server Debian propio (`lautiserver`), no en la VPS
+del workflow `.github/workflows/deploy.yml` (ese deploy automático a `main`
+queda para cuando haya VPS). Así está armado hoy:
+
+| Qué | Dónde |
+|---|---|
+| Código | `/home/lautiserver/BogaBot` (clon de este repo, rama que esté en producción) |
+| Servicio | `bogabot.service` (systemd, usuario `lautiserver`, `BOGABOT_ENV=production`) |
+| Config/secretos | `.env.production` (600, solo en el server) + `data/` (puntos, `riot_key.json`) |
+| Logs | `journalctl -u bogabot -f` (y los `WARNING`+ en el canal de logs de Discord) |
+
+Deploy manual (desde el server):
+
+```bash
+cd /home/lautiserver/BogaBot
+git pull --ff-only origin <rama>
+venv/bin/pip install -r requirements.txt   # solo si cambió requirements.txt
+sudo systemctl restart bogabot
+journalctl -u bogabot -n 50 --no-pager     # verificar que levantó
+```
+
+Cambiar la key de Riot no requiere deploy: `/riot-key <key>` desde Discord.
+El acceso SSH y las herramientas de operación del server están en el proyecto
+aparte `sshserver` (fuera de este repo).
+
 ## Comandos
 - `/link <Nombre#TAG>` — vincula tu cuenta de Riot (valida contra la API).
 - `/unlink` — desvincula tu cuenta.
@@ -208,12 +254,28 @@ mergear a `main`.
   usuario del server. Requiere el rol `DEV_ROLE_ID` y, si está configurado,
   correrse en el canal `ADMIN_CHANNEL_ID`.
 - `/ranking [Hoy|Semana]` — muestra el ranking on-demand.
+- `/trolls [Semana|Semana pasada|Mes|Histórico]` — ranking de puntos troll
+  (quién trolleó más, su "especialidad" y su peor partida).
+- `/troll-analizar [usuario] [partida]` — muestra los cargos troll de una
+  partida (por defecto la última guardada) y por qué suma o no. Sirve para
+  calibrar los umbrales.
+- `/trolls-reglas` — qué detecta el bot y cuántos puntos suma cada cosa.
+- `/trolls-recalcular` — (solo rol dev, en `ADMIN_CHANNEL_ID`) vuelve a
+  pedir a Riot las partidas guardadas antes del detector nuevo para
+  completarles las stats y el timeline. Corre en segundo plano.
 - `/help` y `/ayuda` — listan los comandos disponibles según el rol de quien
   los usa (rol `DEV_ROLE_ID` ve administración, rol `PLAYER_ROLE_ID` ve los
   comandos de ranking). Ambos hacen lo mismo, son solo dos nombres.
 - `/ingest-now` — fuerza una ingesta de partidas manual (solo rol dev). Es
   idempotente: correrlo varias veces no duplica nada, el dedup por
-  (match_id, puuid) saltea lo que ya está guardado.
+  (match_id, discord_id) saltea lo que ya está guardado.
+- `/riot-key [key]` — (solo rol dev, en `ADMIN_CHANNEL_ID`) valida y aplica
+  una RIOT_API_KEY nueva **sin reiniciar** el bot, y la guarda en
+  `RIOT_KEY_FILE` para que sobreviva reinicios. Sin `key`, muestra cuándo
+  vence la actual. La respuesta es efímera: la key no queda visible. Si
+  después alguien cambia `RIOT_API_KEY` en el `.env`, esa pasa a mandar.
+  Además, el bot avisa en `ADMIN_CHANNEL_ID` (etiquetando al rol dev)
+  `RIOT_KEY_WARN_MINUTES` antes de que venza y cuando vence.
 
 ## Avisos "en vivo" y logs
 
@@ -222,10 +284,49 @@ mergear a `main`.
   nuevas y, por cada una que cuente (jugada con otro vinculado), postea un
   mensaje etiquetando a los jugadores del grupo que la jugaron — con el
   resultado de cada uno, por si terminaron en equipos contrarios.
+  El aviso incluye un **troll-o-metro** con los puntos troll de cada uno.
+  Los avisos salen de cualquier ingesta (el chequeo periódico, el job
+  diario o `/ingest-now`), una sola vez por partida.
 - **Logs del bot:** si `LOG_CHANNEL_ID` está seteado, los logs de nivel
   `LOG_CHANNEL_LEVEL` (WARNING por defecto) o superior se reenvían también a
   ese canal, además de la consola. Pensado para enterarte de errores (Riot
   caído, key vencida, etc.) sin tener que mirar la terminal.
+
+## Detector de trolls 🤡
+
+Después de cada partida, cada jugador del grupo se juzga con ~20 reglas
+(`src/bogabot/trolls/rules.py`): feeder, KDA trágico, AFK (0 kills y 0
+asistencias), primera sangre regalada, muertes antes del minuto 10, línea
+perdida por oro al 15, muertes a manos del rival de línea, poco daño o
+participación, visión nula, cero control wards, farm bajo, tiempo muerto,
+"ancla" del equipo, ejecutado por torre/minions, items vendidos (inteo), FF
+antes del 20, barrida en kills, spam de pings de "?", último en Arena. Cada
+cargo suma puntos troll; en ranked se multiplican y si igual ganaron se
+achican (lo llevaron de mochila). Los umbrales cambian según el modo (ARAM y
+modos caóticos toleran más muertes; las reglas de línea son solo de la
+Grieta).
+
+Según el total de la partida:
+
+| Puntos | Qué pasa |
+|---|---|
+| menos de `levels.troll` (6) | Nada aparte; suma al ranking troll y se ve en el troll-o-metro del aviso de partida. |
+| `levels.troll`+ | 🚨 **Alerta troll** en `TROLL_CHANNEL_ID` (o el de rankings), etiquetando al jugador. |
+| `levels.papelon`+ (18) | 💀 **Papelón histórico** en `GENERAL_CHANNEL_ID`. Solo lo muy fuerte (inteo, AFK, 1/14 con FF en ranked...). |
+
+Solo se avisan partidas recientes (`alert_max_age_hours`, 36 h): si el bot
+estuvo caído o alguien se vinculó hoy, lo viejo suma al ranking pero no
+spamea. Todo se ajusta en **`config/trolls.yaml`** sin tocar código (puntos,
+umbrales por modo, apagar reglas, niveles, multiplicadores); como el
+ranking troll se calcula al vuelo, un cambio ahí recalcula también el
+historial. Además, el job diario postea cómo va el ranking troll de la
+semana si hubo trolleadas ese día, y los lunes corona al **Troll de la
+semana**.
+
+Para las reglas de línea, primera sangre e items vendidos la ingesta pide
+también el *timeline* de cada partida (una consulta más a Riot por partida).
+Las partidas guardadas antes de este detector no lo tienen: un dev las
+completa con `/trolls-recalcular`.
 
 ## Cómo se calcula el ranking
 Cada partida se guarda como un registro por jugador, **pero solo si jugaste

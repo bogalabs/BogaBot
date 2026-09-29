@@ -79,8 +79,14 @@ class TestInMemoryStorage(unittest.TestCase):
             )
             await store.save_match(rec)
             await store.save_match(rec)  # duplicado
-            self.assertTrue(await store.match_exists("LA2_1", "p1"))
-            self.assertFalse(await store.match_exists("LA2_1", "otro"))
+            self.assertTrue(await store.match_exists("LA2_1", 1))
+            self.assertFalse(await store.match_exists("LA2_1", 2))
+            self.assertEqual(len(await store.get_all_matches()), 1)
+
+            # Mismo jugador con otro puuid (cambio de API key): sigue siendo duplicado.
+            rec.puuid = "p1-otra-key"
+            await store.save_match(rec)
+            self.assertEqual(len(await store.get_all_matches()), 1)
 
         asyncio.run(scenario())
 
@@ -97,46 +103,66 @@ class TestCarryTrollDetection(unittest.TestCase):
         defaults.update(overrides)
         return MatchRecord(**defaults)
 
-    def test_carry_game_win_high_kda(self):
-        # KDA = (10+5)/2 = 7.5 >= 5 y win=True → carry
-        m = self._match(win=True, kills=10, deaths=2, assists=5)
-        self.assertTrue(m.is_carry_game())
+    def _stats(self):
+        return PlayerStats(discord_id=1, display_name="Test")
 
-    def test_carry_game_requires_win(self):
+    def test_kda_carry(self):
+        # KDA = (10+5)/2 = 7.5 → carry (win + kda >= 5)
+        m = self._match(win=True, kills=10, deaths=2, assists=5)
+        self.assertAlmostEqual(m.kda, 7.5)
+        stats = self._stats()
+        stats.add(m)
+        self.assertEqual(stats.carry_games, 1)
+
+    def test_carry_requires_win(self):
         # KDA alto pero perdió → no es carry
         m = self._match(win=False, kills=10, deaths=2, assists=5)
-        self.assertFalse(m.is_carry_game())
+        stats = self._stats()
+        stats.add(m)
+        self.assertEqual(stats.carry_games, 0)
 
-    def test_carry_game_low_kda_not_carry(self):
+    def test_carry_requires_high_kda(self):
         # Ganó pero KDA = (3+2)/4 = 1.25 < 5 → no es carry
         m = self._match(win=True, kills=3, deaths=4, assists=2)
-        self.assertFalse(m.is_carry_game())
+        stats = self._stats()
+        stats.add(m)
+        self.assertEqual(stats.carry_games, 0)
 
-    def test_carry_game_zero_deaths(self):
-        # KDA = (5+3)/1 = 8 >= 5, win=True → carry (0 muertes usa max(0,1)=1)
+    def test_carry_zero_deaths(self):
+        # KDA = (5+3)/1 = 8, win=True → carry (0 muertes usa max(0,1)=1)
         m = self._match(win=True, kills=5, deaths=0, assists=3)
-        self.assertTrue(m.is_carry_game())
+        stats = self._stats()
+        stats.add(m)
+        self.assertEqual(stats.carry_games, 1)
 
-    def test_troll_game(self):
-        # KDA = (0+0)/10 = 0 < 0.5 → troll (sin importar win/loss/FF)
+    def test_troll_kda(self):
+        # KDA = (0+0)/10 = 0 < 0.5 → troll
         m = self._match(win=False, kills=0, deaths=10, assists=0)
-        self.assertTrue(m.is_troll_game())
+        stats = self._stats()
+        stats.add(m)
+        self.assertEqual(stats.troll_games, 1)
 
-    def test_troll_game_even_if_won(self):
-        # KDA pésimo pero ganó (lo carreo el equipo) → sigue siendo troll
+    def test_troll_even_if_won(self):
+        # KDA pésimo pero ganó → igual se cuenta como troll en scoring
         m = self._match(win=True, kills=0, deaths=10, assists=0)
-        self.assertTrue(m.is_troll_game())
+        stats = self._stats()
+        stats.add(m)
+        self.assertEqual(stats.troll_games, 1)
 
-    def test_troll_game_long_game(self):
-        # KDA malo en partida larga sin FF → sigue siendo troll
+    def test_troll_long_game(self):
+        # KDA malo en partida larga → sigue siendo troll para scoring
         m = self._match(win=False, kills=0, deaths=10, assists=0,
                         game_ended_in_surrender=False, game_duration_seconds=2400)
-        self.assertTrue(m.is_troll_game())
+        stats = self._stats()
+        stats.add(m)
+        self.assertEqual(stats.troll_games, 1)
 
-    def test_not_troll_if_decent_kda(self):
+    def test_not_troll_decent_kda(self):
         # KDA = (2+3)/6 = 0.83 >= 0.5 → no es troll
         m = self._match(win=False, kills=2, deaths=6, assists=3)
-        self.assertFalse(m.is_troll_game())
+        stats = self._stats()
+        stats.add(m)
+        self.assertEqual(stats.troll_games, 0)
 
 
 class TestCarryTrollScoring(unittest.TestCase):

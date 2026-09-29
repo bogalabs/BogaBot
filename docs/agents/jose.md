@@ -22,7 +22,8 @@
 
 ## Foco / responsabilidades actuales
 - Config de Discord (crear canales, IDs, permisos e invitación del bot).
-- Riot API key y su renovación (la dev key vence cada 24 h).
+- Riot API key: producción usa una Personal API Key (no vence). Si hay que
+  rotarla (o se usa una dev key, que vence cada 24 h), se carga con `/riot-key`.
 - Definir/ajustar la fórmula del ranking en `config/scoring.yaml`.
 - Decisiones sobre features futuras (módulo de IA, nuevas fuentes de datos).
 

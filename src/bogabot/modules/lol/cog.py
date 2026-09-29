@@ -1,11 +1,14 @@
 """Cog con los slash commands del módulo LoL:
-/link, /unlink, /link-admin, /ingest-now, /ranking, /help, /ayuda.
+/link, /unlink, /link-admin, /unlink-admin, /ingest-now, /ranking,
+/trolls, /trolls-reglas, /troll-analizar, /trolls-recalcular.
 
 El cog es "delgado": valida input, llama a los servicios (riot, storage,
-ranking) y responde. Toda la lógica de negocio vive en los servicios, no acá.
+ranking, trolls) y responde. Toda la lógica de negocio vive en los
+servicios, no acá.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -26,6 +29,7 @@ log = logging.getLogger(__name__)
 class LolCog(commands.Cog):
     def __init__(self, bot: "BogaBot") -> None:
         self.bot = bot
+        self._recalc_task: asyncio.Task | None = None
 
     def _storage_ready(self) -> bool:
         return self.bot.storage.ready
@@ -37,9 +41,6 @@ class LolCog(commands.Cog):
 
     def _is_dev(self, member: discord.Member) -> bool:
         return self._has_role(member, self.bot.settings.dev_role_id)
-
-    def _is_player(self, member: discord.Member) -> bool:
-        return self._has_role(member, self.bot.settings.player_role_id)
 
     async def _grant_lol_role(self, member: discord.Member) -> None:
         """Le asigna el rol de LoL configurado (ver LOL_ROLE_ID) al vincularse.
@@ -256,52 +257,99 @@ class LolCog(commands.Cog):
             embed = self.bot.ranking.build_ranking_embed(rows, "🏆 Ranking de hoy")
         await interaction.followup.send(embed=embed)
 
-    async def _send_help(self, interaction: discord.Interaction) -> None:
+    # --- Trolls -------------------------------------------------------------
+    @app_commands.command(name="trolls", description="Ranking troll del grupo (puntos por papelones).")
+    @app_commands.describe(periodo="Ventana de tiempo del ranking troll")
+    @app_commands.choices(
+        periodo=[
+            app_commands.Choice(name="Semana", value="week"),
+            app_commands.Choice(name="Semana pasada", value="prev_week"),
+            app_commands.Choice(name="Mes", value="month"),
+            app_commands.Choice(name="Histórico", value="all"),
+        ]
+    )
+    async def trolls(
+        self,
+        interaction: discord.Interaction,
+        periodo: app_commands.Choice[str] | None = None,
+    ) -> None:
+        await interaction.response.defer()
+        if not self._storage_ready():
+            await interaction.followup.send("El bot todavía se está inicializando, probá en unos segundos.")
+            return
+        period = periodo.value if periodo else "week"
+        rows = await self.bot.trolls.standings(period)
+        await interaction.followup.send(embed=self.bot.trolls.build_standings_embed(rows, period))
+
+    @app_commands.command(name="trolls-reglas", description="Cómo se calculan los puntos troll.")
+    async def trolls_reglas(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(embed=self.bot.trolls.build_rules_embed(), ephemeral=True)
+
+    @app_commands.command(
+        name="troll-analizar",
+        description="Juzgá una partida: qué cargos troll tiene y por qué.",
+    )
+    @app_commands.describe(
+        usuario="De quién es la partida (vacío = vos)",
+        partida="ID de la partida, ej. LA2_1234567890 (vacío = la última guardada)",
+    )
+    async def troll_analizar(
+        self,
+        interaction: discord.Interaction,
+        usuario: discord.Member | None = None,
+        partida: str | None = None,
+    ) -> None:
+        await interaction.response.defer()
+        if not self._storage_ready():
+            await interaction.followup.send("El bot todavía se está inicializando, probá en unos segundos.")
+            return
+        target = usuario or interaction.user
+        record = await self.bot.trolls.find_record(target.id, partida)
+        if record is None:
+            what = f"la partida `{partida}`" if partida else "partidas guardadas"
+            await interaction.followup.send(
+                f"No encontré {what} de {target.mention}. "
+                f"(Solo se guardan las jugadas con al menos otro vinculado del grupo.)",
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            return
+        verdict = self.bot.trolls.evaluate(record)
+        await interaction.followup.send(embed=self.bot.trolls.build_analysis_embed(verdict))
+
+    @app_commands.command(
+        name="trolls-recalcular",
+        description="Completa las partidas viejas con los datos del detector de trolls (solo rol dev).",
+    )
+    async def trolls_recalcular(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        is_dev = member is not None and self._is_dev(member)
-        is_player = member is not None and self._is_player(member)
+        if not await self._check_admin(interaction):
+            return
+        if not self._storage_ready():
+            await interaction.followup.send("El bot todavía se está inicializando, probá en unos segundos.")
+            return
+        if self._recalc_task is not None and not self._recalc_task.done():
+            await interaction.followup.send("Ya hay un recálculo corriendo; te aviso acá cuando termine.")
+            return
+        pending = await self.bot.ingest.pending_enrichment()
+        if not pending:
+            await interaction.followup.send("✅ Todas las partidas guardadas ya tienen los datos completos.")
+            return
+        await interaction.followup.send(
+            f"⏳ Recalculando {len(pending)} partidas-jugador en segundo plano (2 consultas a Riot por "
+            f"partida, respetando el rate limit). Aviso en este canal cuando termine."
+        )
+        self._recalc_task = asyncio.create_task(self._run_recalc(interaction.channel))
 
-        embed = discord.Embed(title="📖 Comandos de BogaBot", color=discord.Color.blurple())
-
-        if is_dev:
-            embed.add_field(
-                name="🛠️ Administración (rol dev)",
-                value=(
-                    "`/link-admin <usuario> <Nombre#TAG>` — vinculá la cuenta de Riot de otro usuario del server.\n"
-                    "`/unlink-admin <usuario>` — desvinculá la cuenta de Riot de otro usuario del server.\n"
-                    "`/ingest-now` — forzá una ingesta de partidas ahora mismo."
-                ),
-                inline=False,
-            )
-
-        if is_dev or is_player:
-            embed.add_field(
-                name="🎮 Ranking",
-                value=(
-                    "`/link <Nombre#TAG>` — vinculá tu cuenta de Riot.\n"
-                    "`/unlink` — desvinculá tu cuenta.\n"
-                    "`/ranking [Hoy|Semana]` — mostrá el ranking del grupo.\n"
-                    "*(Solo cuentan las partidas jugadas con al menos otro vinculado del grupo.)*"
-                ),
-                inline=False,
-            )
-
-        if not is_dev and not is_player:
-            embed.description = "Todavía no tenés un rol con comandos asignados. Hablá con un admin del server."
-        else:
-            embed.add_field(
-                name="ℹ️ Ayuda",
-                value="`/help` / `/ayuda` — mostrá este mensaje.",
-                inline=False,
-            )
-
-        await interaction.followup.send(embed=embed)
-
-    @app_commands.command(name="help", description="Mostrá los comandos que podés usar.")
-    async def help_command(self, interaction: discord.Interaction) -> None:
-        await self._send_help(interaction)
-
-    @app_commands.command(name="ayuda", description="Mostrá los comandos que podés usar.")
-    async def ayuda_command(self, interaction: discord.Interaction) -> None:
-        await self._send_help(interaction)
+    async def _run_recalc(self, channel: discord.abc.Messageable | None) -> None:
+        try:
+            updated, unchanged, failed = await self.bot.ingest.enrich_stored_matches()
+            text = (f"✅ Recálculo troll terminado: {updated} partidas completadas, "
+                    f"{unchanged} sin cambios, {failed} con error.")
+        except Exception:  # noqa: BLE001 - que se entere quien lo pidió
+            log.exception("Falló /trolls-recalcular.")
+            text = "❌ El recálculo troll falló a mitad de camino; mirá los logs."
+        if channel is not None:
+            try:
+                await channel.send(text)
+            except discord.HTTPException:
+                log.warning("No pude avisar el fin del recálculo troll: %s", text)

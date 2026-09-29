@@ -19,3 +19,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Audios del módulo de sonidos (se cargan por Discord, viven en el server)
+/sounds/
+
+# Saldo de puntos (vive en el server)
+/data/

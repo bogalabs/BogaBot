@@ -42,6 +42,7 @@ class DiscordChannelStorage(LinkRepository, MatchRepository):
         # Índices en memoria (se hidratan en connect()):
         self._links: dict[int, tuple[PlayerLink, int]] = {}  # discord_id -> (link, message_id)
         self._matches: dict[str, MatchRecord] = {}  # dedup_key -> record
+        self._match_messages: dict[str, int] = {}  # dedup_key -> message_id (para update_match)
 
     @property
     def ready(self) -> bool:
@@ -70,6 +71,7 @@ class DiscordChannelStorage(LinkRepository, MatchRepository):
         assert self._channel is not None
         self._links.clear()
         self._matches.clear()
+        self._match_messages.clear()
         async for msg in self._channel.history(limit=HYDRATE_LIMIT, oldest_first=True):
             if bot_user_id is not None and msg.author.id != bot_user_id:
                 continue
@@ -84,6 +86,7 @@ class DiscordChannelStorage(LinkRepository, MatchRepository):
                     data = json.loads(content[len(MATCH_PREFIX):])
                     record = MatchRecord.from_dict(data)
                     self._matches[record.dedup_key] = record
+                    self._match_messages[record.dedup_key] = msg.id
             except (json.JSONDecodeError, KeyError, ValueError):
                 log.warning("Mensaje de storage ilegible (id=%s), lo salteo.", msg.id)
 
@@ -135,11 +138,28 @@ class DiscordChannelStorage(LinkRepository, MatchRepository):
         if record.dedup_key in self._matches:
             return
         payload = MATCH_PREFIX + json.dumps(record.to_dict(), ensure_ascii=False)
-        await channel.send(payload)
+        msg = await channel.send(payload)
+        self._matches[record.dedup_key] = record
+        self._match_messages[record.dedup_key] = msg.id
+
+    async def update_match(self, record: MatchRecord) -> None:
+        channel = self._ensure_ready()
+        message_id = self._match_messages.get(record.dedup_key)
+        if message_id is None:
+            self._matches.pop(record.dedup_key, None)
+            await self.save_match(record)
+            return
+        payload = MATCH_PREFIX + json.dumps(record.to_dict(), ensure_ascii=False)
+        try:
+            msg = await channel.fetch_message(message_id)
+            await msg.edit(content=payload)
+        except discord.NotFound:
+            msg = await channel.send(payload)  # el mensaje ya no existe: uno nuevo
+            self._match_messages[record.dedup_key] = msg.id
         self._matches[record.dedup_key] = record
 
-    async def match_exists(self, match_id: str, puuid: str) -> bool:
-        return f"{match_id}:{puuid}" in self._matches
+    async def match_exists(self, match_id: str, discord_id: int) -> bool:
+        return f"{match_id}:{discord_id}" in self._matches
 
     async def get_matches(self, since: datetime, until: datetime) -> list[MatchRecord]:
         return [m for m in self._matches.values() if since <= m.game_creation < until]
