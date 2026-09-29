@@ -201,7 +201,9 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   antes del 10, oro vs. rival al 15, items vendidos, ejecuciones), todos
   opcionales: los registros viejos quedan en `None` y esas reglas se
   saltean (`/trolls-recalcular` los completa vía `update_match`). El
-  veredicto NO se persiste: el ranking troll se calcula al vuelo, así que
+  veredicto NO se persiste: el ranking troll se calcula al vuelo y ordena
+  por **índice** (`TrollStanding.index` = puntos promedio por partida, no el
+  total, para que la cantidad de partidas no pese), así que
   cambiar el YAML recalcula el historial. Niveles: `levels.troll` → alerta
   en `TROLL_CHANNEL_ID` (default `RANKING_CHANNEL_ID`); `levels.papelon` →
   **papelón histórico en `GENERAL_CHANNEL_ID`** (solo lo muy fuerte; si

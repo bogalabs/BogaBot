@@ -237,6 +237,31 @@ class TestTrollService(unittest.TestCase):
         self.assertIn("Troll", embed.description)
         self.assertIn("Santo", embed.fields[0].value)  # sección de limpios
 
+    def test_ranking_uses_per_game_index_not_total(self):
+        # "Heavy" la trollea fuerte en 2 partidas; "Grinder" jugó 18 y trolleó 2.
+        feeder = dict(kills=1, deaths=15, assists=2, deaths_before_10=4, gold_diff_15=-3000,
+                      deaths_to_lane_opponent=5, items_sold=6)
+        for i in range(2):
+            self._save(match_id=f"LA2_H{i}", discord_id=1, game_name="Heavy", **feeder)
+        for i in range(18):
+            extra = feeder if i < 2 else {}
+            self._save(match_id=f"LA2_G{i}", discord_id=2, game_name="Grinder", **extra)
+        # Otro más con muchas partidas: más total que Heavy si se sumara, pero menos índice.
+        for i in range(8):
+            self._save(match_id=f"LA2_M{i}", discord_id=3, game_name="Mucho",
+                       kills=1, deaths=12, assists=2)
+
+        rows = asyncio.run(self.service.standings("week"))
+        by_name = {s.display_name: s for s in rows}
+        self.assertEqual(by_name["Heavy"].points, by_name["Grinder"].points)  # mismo total
+        self.assertEqual(rows[0].display_name, "Heavy")
+        self.assertGreater(by_name["Mucho"].points, by_name["Heavy"].points)  # más total...
+        self.assertLess(by_name["Mucho"].index, by_name["Heavy"].index)  # ...pero menos índice
+        self.assertEqual([s.display_name for s in rows], ["Heavy", "Mucho", "Grinder"])
+        self.assertAlmostEqual(by_name["Grinder"].index, by_name["Grinder"].points / 18)
+        embed = self.service.build_standings_embed(rows, "week")
+        self.assertIn("índice", embed.description)
+
     def test_is_fresh(self):
         now = datetime.now(timezone.utc)
         self.assertTrue(self.service.is_fresh(record(game_creation=now - timedelta(hours=2))))

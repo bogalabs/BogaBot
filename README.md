@@ -254,7 +254,8 @@ aparte `sshserver` (fuera de este repo).
   usuario del server. Requiere el rol `DEV_ROLE_ID` y, si está configurado,
   correrse en el canal `ADMIN_CHANNEL_ID`.
 - `/ranking [Hoy|Semana]` — muestra el ranking on-demand.
-- `/trolls [Semana|Semana pasada|Mes|Histórico]` — ranking de puntos troll
+- `/trolls [Semana|Semana pasada|Mes|Histórico]` — ranking troll por **índice**
+  (puntos troll promedio por partida, así jugar mucho no pesa)
   (quién trolleó más, su "especialidad" y su peor partida).
 - `/troll-analizar [usuario] [partida]` — muestra los cargos troll de una
   partida (por defecto la última guardada) y por qué suma o no. Sirve para
@@ -319,7 +320,9 @@ estuvo caído o alguien se vinculó hoy, lo viejo suma al ranking pero no
 spamea. Todo se ajusta en **`config/trolls.yaml`** sin tocar código (puntos,
 umbrales por modo, apagar reglas, niveles, multiplicadores); como el
 ranking troll se calcula al vuelo, un cambio ahí recalcula también el
-historial. Además, el job diario postea cómo va el ranking troll de la
+historial. El ranking ordena por **índice troll** (puntos promedio por
+partida), no por el total: el que la trollea fuerte en 2 partidas queda
+arriba del que jugó 18 y trolleó 2. Además, el job diario postea cómo va el ranking troll de la
 semana si hubo trolleadas ese día, y los lunes corona al **Troll de la
 semana**.
 

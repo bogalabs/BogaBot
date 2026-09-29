@@ -132,7 +132,9 @@ class TrollService:
                 s.worst = v
         rows = sorted(
             by_player.values(),
-            key=lambda s: (-s.points, -s.papelones, -s.troll_games, s.games, s.display_name.lower()),
+            # Por índice (promedio por partida), no por total: la cantidad de
+            # partidas no debe pesar. Desempata el total y los papelones.
+            key=lambda s: (-s.index, -s.points, -s.papelones, s.display_name.lower()),
         )
         for i, s in enumerate(rows, 1):
             s.rank = i
@@ -248,7 +250,8 @@ class TrollService:
             crown = " 👑" if standing.rank == 1 else ""
             embed.add_field(
                 name="📆 En la semana",
-                value=(f"Lleva **{standing.points} pts** troll · puesto **#{standing.rank}** de {players}{crown}\n"
+                value=(f"Índice troll **{standing.index:.1f}** pts/partida ({standing.points} pts en "
+                       f"{standing.games} partidas) · puesto **#{standing.rank}** de {players}{crown}\n"
                        f"🚨 {standing.troll_games} trolleadas · 💀 {standing.papelones} papelones"),
                 inline=False,
             )
@@ -258,7 +261,7 @@ class TrollService:
     def build_standings_embed(self, rows: list[TrollStanding], period: str) -> discord.Embed:
         embed = discord.Embed(title=f"🤡 Ranking troll {PERIODS.get(period, '')}".strip(),
                               color=discord.Color.orange())
-        embed.set_footer(text="Puntos troll = suma de los cargos de cada partida. Mirá /trolls-reglas.")
+        embed.set_footer(text="Índice troll = puntos troll promedio por partida (no importa cuántas jugaste). Mirá /trolls-reglas.")
         guilty = [s for s in rows if s.points > 0]
         clean = [s for s in rows if s.points == 0]
         if not rows:
@@ -270,7 +273,8 @@ class TrollService:
             blocks: list[str] = []
             for s in guilty[:10]:
                 medal = _PODIUM.get(s.rank, f"`#{s.rank}`")
-                lines = [f"{medal} **{s.display_name}** — **{s.points} pts** en {s.games} partidas"]
+                lines = [f"{medal} **{s.display_name}** — índice **{s.index:.1f}** "
+                         f"({s.points} pts en {s.games} partida{'s' if s.games > 1 else ''})"]
                 counts = []
                 if s.troll_games:
                     counts.append(f"🚨 {s.troll_games} trolleada{'s' if s.troll_games > 1 else ''}")
@@ -298,7 +302,8 @@ class TrollService:
         top = next((s for s in rows if s.points > 0), None)
         if top is None:
             return None, embed
-        return (f"👑 <@{top.discord_id}> es el **Troll de la semana** con {top.points} pts. "
+        return (f"👑 <@{top.discord_id}> es el **Troll de la semana** con un índice de "
+                f"{top.index:.1f} pts por partida. "
                 f"Aplausos. 👏"), embed
 
     def build_rules_embed(self) -> discord.Embed:
@@ -310,7 +315,8 @@ class TrollService:
             f"• **{c.troll_level}+ pts** → 🚨 alerta troll\n"
             f"• **{c.papelon_level}+ pts** → 💀 papelón histórico en {general}\n"
             f"• En ranked ×{c.ranked_multiplier:g} · si igual ganaron ×{c.win_multiplier:g}\n"
-            "Todo suma al ranking troll (`/trolls`).\n\n"
+            "El ranking troll (`/trolls`) ordena por **índice**: puntos promedio por partida, "
+            "así que jugar mucho no te hunde ni te salva.\n\n"
         )
         lines = [
             f"{spec.emoji} **{spec.title}** (+{int(cfg.params['points'])}) — {spec.description}"
