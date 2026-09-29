@@ -92,6 +92,7 @@ class Settings:
     lol_role_id: int | None
     match_notify_channel_id: int | None
     match_poll_interval_minutes: int
+    match_notify_max_age_minutes: int  # partidas más viejas se guardan pero no se avisan
     troll_channel_id: int | None  # alertas troll; si falta, van a RANKING_CHANNEL_ID
     # Riot
     riot_api_key: str
@@ -153,6 +154,9 @@ class Settings:
         poll_minutes = int(os.getenv("MATCH_POLL_INTERVAL_MINUTES", "5"))
         if poll_minutes < 1:
             raise ConfigError("MATCH_POLL_INTERVAL_MINUTES debe ser >= 1.")
+        notify_max_age = int(os.getenv("MATCH_NOTIFY_MAX_AGE_MINUTES", "120"))
+        if notify_max_age < 1:
+            raise ConfigError("MATCH_NOTIFY_MAX_AGE_MINUTES debe ser >= 1.")
 
         log_channel_level_name = os.getenv("LOG_CHANNEL_LEVEL", "WARNING").upper()
         log_channel_level = getattr(logging, log_channel_level_name, logging.WARNING)
@@ -179,6 +183,7 @@ class Settings:
             lol_role_id=_optional_int("LOL_ROLE_ID"),
             match_notify_channel_id=_optional_int("MATCH_NOTIFY_CHANNEL_ID"),
             match_poll_interval_minutes=poll_minutes,
+            match_notify_max_age_minutes=notify_max_age,
             troll_channel_id=_optional_int("TROLL_CHANNEL_ID"),
             riot_api_key=_require("RIOT_API_KEY"),
             riot_platform=os.getenv("RIOT_PLATFORM", "la2"),

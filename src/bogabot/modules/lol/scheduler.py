@@ -245,11 +245,19 @@ class LolScheduler(commands.Cog):
         if channel is None:
             return
 
+        now = dt.datetime.now(dt.timezone.utc)
+        max_age = dt.timedelta(minutes=self.bot.settings.match_notify_max_age_minutes)
         by_match: dict[str, list[TrollVerdict]] = {}  # preserva orden de llegada
         for r in records:
             by_match.setdefault(r.match_id, []).append(verdicts[r.dedup_key])
         for match_id, match_verdicts in by_match.items():
             if match_id in self._notified:
+                continue
+            # Solo se avisa lo recién terminado. Una partida vieja (bot caído o
+            # expulsado un rato, /ingest-now de partidas anteriores) se guarda y
+            # suma, pero no se avisa; si no, al volver se inunda el canal.
+            if now - match_verdicts[0].record.game_end > max_age:
+                log.info("Partida vieja %s; la guardo pero no la aviso.", match_id)
                 continue
             summary = await self.bot.ingest.build_match_summary(match_id)
             if summary is None:

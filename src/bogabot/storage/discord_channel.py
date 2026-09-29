@@ -59,6 +59,13 @@ class DiscordChannelStorage(LinkRepository, MatchRepository):
                 f"STORAGE_CHANNEL_ID={self._settings.storage_channel_id} no es un canal de texto."
             )
         self._channel = channel
+        # Es la "base de datos": el bot escribe/edita un mensaje por partida
+        # (ingesta, /trolls-recalcular). Si lo ve todo el server, es spam.
+        if channel.permissions_for(channel.guild.default_role).view_channel:
+            log.warning(
+                "El canal de storage #%s lo puede ver @everyone: ocultalo y dejá acceso "
+                "solo al bot y a los admins.", channel.name,
+            )
         await self._hydrate(client.user.id if client.user else None)
         self._ready = True
         log.info(

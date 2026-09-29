@@ -158,6 +158,7 @@ si pusiste `DISCORD_GUILD_ID`).
 | `PLAYER_ROLE_ID` | Rol de jugador/miembro; solo afecta qué ve `/help` y `/ayuda`. |
 | `MATCH_NOTIFY_CHANNEL_ID` | Canal donde se avisa cuando termina una partida (opcional). |
 | `MATCH_POLL_INTERVAL_MINUTES` | Cada cuántos minutos se chequean partidas nuevas (para ese aviso y las alertas troll). |
+| `MATCH_NOTIFY_MAX_AGE_MINUTES` | Solo se avisan partidas que terminaron hace menos de esto (default 120). Las más viejas (bot caído, `/ingest-now` de partidas anteriores) se guardan sin avisar. |
 | `RIOT_API_KEY` | API key de Riot. En producción, la **Personal API Key** (no vence); la dev key vence cada 24h. Se puede rotar en caliente con `/riot-key`. |
 | `RIOT_KEY_FILE` | Dónde se guarda la key cargada con `/riot-key` (default `data/riot_key.json`). |
 | `RIOT_KEY_TTL_HOURS` | Horas de vida de la key para el recordatorio (default `24`, para la dev key; con la Personal API Key poné `0` = no vence, sin recordatorio). |
@@ -287,7 +288,10 @@ aparte `sshserver` (fuera de este repo).
   resultado de cada uno, por si terminaron en equipos contrarios.
   El aviso incluye un **troll-o-metro** con los puntos troll de cada uno.
   Los avisos salen de cualquier ingesta (el chequeo periódico, el job
-  diario o `/ingest-now`), una sola vez por partida.
+  diario o `/ingest-now`), una sola vez por partida, y **solo si la partida
+  terminó hace menos de `MATCH_NOTIFY_MAX_AGE_MINUTES`** (120 por defecto):
+  las viejas se guardan sin avisar. `/trolls-recalcular` nunca avisa (solo
+  reescribe el storage).
 - **Logs del bot:** si `LOG_USER_ID` está seteado, los logs de nivel
   `LOG_CHANNEL_LEVEL` (WARNING por defecto) o superior se le mandan por DM a
   ese usuario; si no, y hay `LOG_CHANNEL_ID`, van a ese canal. Siempre salen

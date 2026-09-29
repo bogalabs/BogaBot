@@ -52,7 +52,7 @@ class _Fixture:
         self.store = InMemoryStorage()
         settings = SimpleNamespace(
             timezone="America/Argentina/Buenos_Aires", troll_channel_id=TROLL, ranking_channel_id=RANKING,
-            general_channel_id=GENERAL, match_notify_channel_id=NOTIFY,
+            general_channel_id=GENERAL, match_notify_channel_id=NOTIFY, match_notify_max_age_minutes=120,
         )
         self.summaries: list[str] = []
 
@@ -125,6 +125,14 @@ class TestTrollAnnouncements(unittest.TestCase):
         meter = next(field for field in embed.fields if "Troll-o-metro" in field.name)
         self.assertIn("<@1>", meter.value)
         self.assertEqual(f.summaries, ["LA2_5"])
+
+    def test_old_matches_are_not_notified(self):
+        f = _Fixture()
+        old = datetime.now(timezone.utc) - timedelta(hours=5)  # troll vale 36h; el aviso, 2h
+        f.ingest(record(match_id="LA2_OLD", discord_id=1, game_creation=old),
+                 record(match_id="LA2_NEW", discord_id=1, game_creation=_RECENT))
+        self.assertEqual(len(f.channels[NOTIFY].sent), 1)
+        self.assertEqual(f.summaries, ["LA2_NEW"])
 
     def test_notification_failure_does_not_block_troll_alerts(self):
         f = _Fixture()
