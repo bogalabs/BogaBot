@@ -22,6 +22,8 @@ SUPPORTED_METRICS: dict[str, str] = {
     "avg_vision": "avg_vision",
     "cs_per_min": "cs_per_min",
     "games_played": "games_played",
+    "carry_rate": "carry_rate",
+    "troll_rate": "troll_rate",
 }
 
 VALID_NORMALIZATIONS = {"zscore", "minmax", "none"}

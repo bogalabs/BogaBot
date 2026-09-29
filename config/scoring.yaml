@@ -11,9 +11,15 @@
 #      para que ninguna domine solo por tener números más grandes.
 #   3. El puntaje final = suma de (peso * valor_normalizado) de cada métrica.
 #      Si "higher_is_better: false", valores más BAJOS suman más (ej: muertes).
+#
+# IMPORTANTE: solo cuentan partidas Ranked (Flex + Solo/Duo) jugadas con
+# al menos otro vinculado del grupo. Normals, ARAM, etc. NO cuentan.
+#
+# FILOSOFÍA: calidad > cantidad. Todas las métricas son promedios o ratios
+# por partida, así que jugar muchas partidas mediocres no te sube el ranking.
 # ==========================================================================
 
-version: 1
+version: 2
 
 # Cómo se agregan las partidas de cada jugador:
 #   per_game_average -> promedio por partida (justo para quien juega poco vs mucho)
@@ -34,11 +40,14 @@ normalization: zscore
 #   damage_per_min   -> daño a campeones por minuto
 #   avg_vision       -> vision score promedio por partida
 #   cs_per_min       -> farm (minions + jungla) por minuto
-#   games_played     -> cantidad de partidas (premia participación)
+#   games_played     -> cantidad de partidas (premia participación, NO recomendado)
+#   carry_rate       -> % de partidas carreadas (victoria + KDA >= 5)
+#   troll_rate       -> % de partidas troleadas (KDA < 0.5)
 metrics:
-  win_rate:       { weight: 5.0, higher_is_better: true }
+  carry_rate:     { weight: 5.0, higher_is_better: true }   # % de carreadas suman fuerte
+  troll_rate:     { weight: 4.0, higher_is_better: false }  # % de troleadas restan fuerte
   kda:            { weight: 3.0, higher_is_better: true }
-  avg_deaths:     { weight: 2.0, higher_is_better: false }
-  damage_per_min: { weight: 1.5, higher_is_better: true }
-  avg_vision:     { weight: 1.0, higher_is_better: true }
-  games_played:   { weight: 0.5, higher_is_better: true }
+  win_rate:       { weight: 2.0, higher_is_better: true }
+  avg_deaths:     { weight: 1.5, higher_is_better: false }
+  damage_per_min: { weight: 1.0, higher_is_better: true }
+  avg_vision:     { weight: 0.5, higher_is_better: true }

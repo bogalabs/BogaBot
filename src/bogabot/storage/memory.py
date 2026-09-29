@@ -33,6 +33,9 @@ class InMemoryStorage(LinkRepository, MatchRepository):
     async def save_match(self, record: MatchRecord) -> None:
         self._matches[record.dedup_key] = record
 
+    async def update_match(self, record: MatchRecord) -> None:
+        self._matches[record.dedup_key] = record
+
     async def match_exists(self, match_id: str, discord_id: int) -> bool:
         return f"{match_id}:{discord_id}" in self._matches
 
