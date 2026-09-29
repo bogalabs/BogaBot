@@ -105,6 +105,8 @@ class MatchRecord:
     team_deaths: int | None = None
     enemy_kills: int | None = None
     team_damage: int | None = None
+    damage_taken: int | None = None  # para distinguir al tanque que absorbe del que no pelea
+    team_damage_taken: int | None = None
     # Del timeline de la partida (None si no se pudo pedir).
     first_death_minute: int | None = None
     deaths_before_10: int | None = None
@@ -150,6 +152,12 @@ class MatchRecord:
         if not self.team_damage:
             return None
         return self.damage_to_champions / self.team_damage
+
+    @property
+    def damage_taken_share(self) -> float | None:
+        if self.damage_taken is None or not self.team_damage_taken:
+            return None
+        return self.damage_taken / self.team_damage_taken
 
     @property
     def has_extended_stats(self) -> bool:
@@ -222,6 +230,8 @@ class MatchRecord:
             team_deaths=_opt_int(d.get("team_deaths")),
             enemy_kills=_opt_int(d.get("enemy_kills")),
             team_damage=_opt_int(d.get("team_damage")),
+            damage_taken=_opt_int(d.get("damage_taken")),
+            team_damage_taken=_opt_int(d.get("team_damage_taken")),
             first_death_minute=_opt_int(d.get("first_death_minute")),
             deaths_before_10=_opt_int(d.get("deaths_before_10")),
             gave_first_blood=_opt_bool(d.get("gave_first_blood")),
@@ -243,7 +253,7 @@ class MatchRecord:
 # Campos opcionales de MatchRecord (se serializan solo si no son None).
 _OPTIONAL_RECORD_FIELDS = (
     "time_dead_seconds", "control_wards_bought", "question_pings", "placement",
-    "team_kills", "team_deaths", "enemy_kills", "team_damage",
+    "team_kills", "team_deaths", "enemy_kills", "team_damage", "damage_taken", "team_damage_taken",
     "first_death_minute", "deaths_before_10", "gave_first_blood", "executed_deaths",
     "items_sold", "deaths_to_lane_opponent", "gold_diff_15",
     "base_absent", "base_absent_farming", "throw_deaths", "throw_objective",

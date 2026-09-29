@@ -207,28 +207,43 @@ class TestTimelineSituations(unittest.TestCase):
         r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline(home, events))
         self.assertEqual(r.base_absent, 0)
 
-    def test_throw_only_if_died_first(self):
+    def test_throw_only_if_picked_off_alone(self):
         events = [
-            kill(25 * 60_000, killer=8, victim=3),  # muere primero...
-            kill(25 * 60_000 + 10_000, killer=7, victim=1),
+            kill(25 * 60_000, killer=8, victim=3),  # lo agarran solo...
+            kill(25 * 60_000 + 25_000, killer=7, victim=1),  # (otro cae 25 s después)
             {"type": "ELITE_MONSTER_KILL", "timestamp": 25 * 60_000 + 40_000, "killerTeamId": 200,
              "monsterType": "BARON_NASHOR"},  # ...y cae el Barón
-            kill(29 * 60_000, killer=9, victim=2),  # acá murió primero otro
-            kill(29 * 60_000 + 5_000, killer=9, victim=3),
+        ]
+        r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline({}, events))
+        self.assertEqual((r.throw_deaths, r.throw_objective), (1, "el Barón"))
+
+    def test_first_death_in_a_teamfight_is_not_a_throw(self):
+        events = [
+            kill(29 * 60_000, killer=9, victim=3),  # el tanque abre y cae primero...
+            kill(29 * 60_000 + 4_000, killer=3 + 3, victim=2),  # ...pelea: cae otro al toque
             {"type": "ELITE_MONSTER_KILL", "timestamp": 29 * 60_000 + 30_000, "killerTeamId": 200,
              "monsterType": "DRAGON", "monsterSubType": "ELDER_DRAGON"},
         ]
         r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline({}, events))
-        self.assertEqual(r.throw_deaths, 1)
-        self.assertEqual(r.throw_objective, "el Barón")
-        other = map_match(self._lost_match(), "puuid-2", 22, timeline=_positional_timeline({}, events))
-        self.assertEqual(other.throw_deaths, 1)
-        self.assertEqual(other.throw_objective, "el Dragón Ancestral")
+        self.assertEqual(r.throw_deaths, 0)
+
+    def test_split_push_is_not_base_absence(self):
+        events = [
+            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000, "teamId": 100,
+             "buildingType": "INHIBITOR_BUILDING"},
+            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000 + 15_000, "teamId": 200, "killerId": 3,
+             "buildingType": "TOWER_BUILDING", "towerType": "BASE_TURRET"},  # él tiraba la base roja
+            {"type": "GAME_END", "timestamp": 30 * 60_000 + 40_000, "winningTeam": 200},
+        ]
+        far = {m: (12000, 11000) for m in range(28, 33)}
+        r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline(far, events))
+        self.assertEqual(r.base_absent, 0)
 
     def test_rich_deaths(self):
-        events = [kill(12 * 60_000 + 30_000, 8, 3), kill(20 * 60_000 + 10_000, 8, 3), kill(5 * 60_000, 8, 3)]
-        r = map_match(self._lost_match(), "puuid-3", 33,
-                      timeline=_positional_timeline({}, events, gold={12: 3400, 20: 4100, 5: 900}))
+        events = [kill(12 * 60_000 + 30_000, 8, 3), kill(20 * 60_000 + 10_000, 8, 3), kill(5 * 60_000, 8, 3),
+                  kill(28 * 60_000 + 10_000, 8, 3)]  # en late, con oro encima, no cuenta
+        r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline(
+            {}, events, gold={12: 3400, 20: 4100, 5: 900, 28: 6000}))
         self.assertEqual(r.rich_deaths, 2)
         self.assertEqual(r.max_gold_on_death, 4100)
 
@@ -239,4 +254,4 @@ class TestTimelineSituations(unittest.TestCase):
         self.assertEqual(r.afk_minutes, 5)
         moving = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline({}, []))
         self.assertEqual(moving.afk_minutes, 0)
-        self.assertEqual(moving.timeline_version, 2)
+        self.assertEqual(moving.timeline_version, 3)

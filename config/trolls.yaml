@@ -49,32 +49,37 @@ index:
   max_game_points: 30
 
 rules:
-  # 🍽️ Muchas muertes y KDA < 1. +1 cada `extra_every` muertes de más (hasta `max_extra`).
-  feeder:           { points: 3, min_deaths: 10, min_deaths_aram: 14, min_deaths_chaos: 16, max_kda: 1.0, extra_every: 2, max_extra: 3 }
+  # 🍽️ Muertes según la duración: umbral = max(min_deaths, deaths_per_10 × minutos / 10),
+  # con KDA < 1. +1 cada `extra_every` muertes de más (hasta `max_extra`).
+  # Reemplaza a "KDA de la vergüenza" y "Veraneando en la fuente" (no se suman).
+  feeder:           { points: 3, min_deaths: 8, min_deaths_aram: 12, min_deaths_chaos: 14, deaths_per_10: 3.3, deaths_per_10_aram: 5.5, deaths_per_10_chaos: 6.5, max_kda: 1.0, extra_every: 2, max_extra: 3 }
   # 📉 KDA menor a max_kda con al menos min_deaths muertes (no se suma si ya es feeder).
   tragic_kda:       { points: 2, max_kda: 0.5, min_deaths: 5, min_deaths_aram: 8, min_deaths_chaos: 8 }
   # 👻 0 kills y 0 asistencias (si el equipo hizo al menos min_team_kills).
   ghost:            { points: 5, min_minutes: 12, min_team_kills: 5 }
-  # 🕊️ 0 kills en una partida de al menos min_minutes (no aplica a supports).
-  pacifist:         { points: 1, min_minutes: 20 }
-  # 🩸 Primera muerte de la partida; +early_bonus si fue antes de early_minute.
-  first_blood:      { points: 1, early_minute: 3, early_bonus: 1 }
+  # 🕊️ 0 kills en una partida de al menos min_minutes, con menos de max_damage_share del daño (no supports).
+  pacifist:         { points: 1, min_minutes: 20, max_damage_share: 0.20 }
+  # 🩸 Primera muerte de la partida antes de max_minute (invade/nivel 1); +early_bonus antes de early_minute.
+  first_blood:      { points: 1, max_minute: 5, early_minute: 3, early_bonus: 1 }
   # ⏰ Muertes antes del minuto 10.
   early_deaths:     { points: 2, min_deaths: 3 }
   # 🚜 Oro abajo contra el rival de línea al minuto 15.
   lane_gap:         { points: 2, min_deficit: 2500, min_deficit_support: 1500 }
-  # 🎁 Muertes a manos del rival de línea.
-  lane_delivery:    { points: 2, min_deaths: 4 }
-  # 🪶 % del daño a campeones de su equipo (no aplica a supports). 0.10 = 10%.
-  low_damage:       { points: 2, max_share: 0.10, min_minutes: 15 }
+  # 🎁 Muertes a manos del rival de línea (y al menos min_share de todas sus muertes).
+  lane_delivery:    { points: 2, min_deaths: 4, min_share: 0.4 }
+  # 🪶 % del daño a campeones de su equipo (0.10 = 10%), salvo que haya tanqueado
+  # al menos tank_share del daño recibido por el equipo (no aplica a supports).
+  low_damage:       { points: 2, max_share: 0.10, tank_share: 0.25, min_minutes: 15 }
   # 🏝️ Participación en kills (0.20 = 20%) si el equipo hizo al menos min_team_kills.
-  low_kp:           { points: 2, max_kp: 0.20, max_kp_aram: 0.30, min_team_kills: 10 }
+  low_kp:           { points: 2, max_kp: 0.20, max_kp_aram: 0.30, min_team_kills: 10, min_minutes: 15 }
   # 🙈 Vision score por minuto (a los supports se les exige min_per_min_support).
+  # Reemplaza a "Ni un control ward" (no se suman).
   blind:            { points: 1, min_per_min: 0.35, min_per_min_support: 1.0, min_minutes: 20 }
-  # 🧿 Ni un control ward en una partida de al menos min_minutes.
-  no_control_wards: { points: 1, min_minutes: 25 }
-  # 🌾 Farm por minuto (minions + jungla) según rol.
-  farm_allergy:     { points: 1, min_cs_per_min: 4.0, min_cs_per_min_jungle: 3.5, min_minutes: 15 }
+  # 🧿 Ni un control ward en una partida de al menos min_minutes, con visión por
+  # minuto menor a max_vision_per_min (a supports se les exige siempre).
+  no_control_wards: { points: 1, min_minutes: 25, max_vision_per_min: 0.8 }
+  # 🌾 Farm por minuto (minions + jungla) según rol, salvo que haga max_damage_share del daño.
+  farm_allergy:     { points: 1, min_cs_per_min: 4.0, min_cs_per_min_jungle: 3.5, min_minutes: 15, max_damage_share: 0.25 }
   # ⚰️ Fracción de la partida muerto (0.25 = 25%); +severe_bonus desde severe_share.
   tombstone:        { points: 2, min_share: 0.25, severe_share: 0.35, severe_bonus: 1 }
   # ⚓ Murió más que los otros 4 de su equipo juntos (con al menos min_deaths).
@@ -84,17 +89,19 @@ rules:
   # 💸 Items vendidos en la partida (normal: 1-3; muchos = inteo).
   item_seller:      { points: 4, min_items: 6 }
   # 🏚️ Estructuras de la base (inhibidores, torres del nexo, el nexo) perdidas
-  # mientras él estaba vivo y lejos de la base. Solo derrotas.
-  base_absent:      { points: 4, min_structures: 2 }
-  # 💥 Murió primero de su equipo y en menos de 1 minuto perdieron Barón/Ancestral/nexo.
+  # mientras él estaba vivo y lejos, sin estar tirando la base enemiga (split
+  # push). Solo derrotas. +farming_bonus si en ese momento estaba farmeando.
+  base_absent:      { points: 4, min_structures: 2, farming_bonus: 2 }
+  # 💥 Lo agarraron solo (sin pelea alrededor) y en menos de 1 minuto perdieron Barón/Ancestral/nexo.
   throw:            { points: 3, min_throws: 1, repeat_bonus: 1 }
   # 💤 Minutos seguidos quieto, vivo y sin ganar experiencia.
-  afk:              { points: 5, min_minutes: 3 }
-  # 💰 Muertes con más de 3.000 de oro sin gastar encima.
+  afk:              { points: 6, min_minutes: 3 }
+  # 💰 Muertes antes del minuto 25 con más de 3.000 de oro sin gastar encima.
   hoarder:          { points: 1, min_deaths: 2 }
-  # 🏳️ Derrota por rendición antes de max_minutes (solo Grieta).
+  # 🏳️ Derrota por rendición antes de max_minutes (solo Grieta). Agravante:
+  # solo suma si el jugador ya tiene algún cargo propio.
   early_ff:         { points: 2, max_minutes: 20 }
-  # 🧹 Derrota con esta diferencia de kills o más.
+  # 🧹 Derrota con esta diferencia de kills o más. Agravante (como el FF).
   stomped:          { points: 1, min_gap: 20, min_gap_aram: 25, min_gap_chaos: 30 }
   # ❓ Pings de "?" tirados.
   pinger:           { points: 1, min_pings: 15 }

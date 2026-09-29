@@ -317,6 +317,22 @@ Cada cargo suma puntos troll; en ranked se multiplican y si igual ganaron se
 achican. Los umbrales cambian según el modo (ARAM y modos caóticos toleran
 más muertes; las reglas de línea y de base son solo de la Grieta).
 
+Criterios para no castigar juego normal:
+- Las muertes se miden **según lo que duró la partida** (10 en 20 min no es
+  lo mismo que en 45).
+- La primera sangre solo cuenta si fue **temprano** (antes del minuto 5).
+- "Delivery" exige que la mayoría de sus muertes sean contra su rival de línea.
+- El **tanque** que absorbe daño no cuenta como "poco daño", y el que carrea
+  con daño no cuenta como "pacifista" ni "poco farm".
+- Sin control wards solo cuenta si además la visión fue floja.
+- El FF y la barrida son **culpa del equipo**: solo agravan si el jugador ya
+  tiene un cargo propio.
+- "Nos tiraban la base" no cuenta si estaba haciendo *split push*.
+- "Throw" es solo si lo agarraron **solo**, sin pelea alrededor.
+- "Ahorrista" solo mira muertes antes del minuto 25.
+- Reglas que miden lo mismo no se suman (feeder reemplaza a KDA trágico y a
+  tiempo muerto; ciego reemplaza a sin control wards).
+
 | Puntos de la partida | Qué pasa |
 |---|---|
 | menos de `levels.troll` (6) | Nada aparte; suma al ranking troll y se ve en el troll-o-metro del aviso de partida. |

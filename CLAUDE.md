@@ -101,7 +101,10 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   `None`) en `MatchRecord` + extraerlo en `riot/mapper.py`, y la regla
   devuelve `None` si falta (registros viejos). Documentarla en
   `config/trolls.yaml` (un test chequea que estén todas). Si castiga lo
-  mismo que otra, usar `supersedes` para que no se sumen las dos.
+  mismo que otra, usar `supersedes` para que no se sumen las dos. Si es
+  culpa del equipo y no del jugador (FF, barrida), `aggravating=True`: solo
+  suma si hay algún cargo propio. Ojo: el YAML pisa los defaults del código;
+  si cambiás un default, actualizá también el YAML.
 - **Agregar un slash command LoL:** método nuevo en `modules/lol/cog.py`.
 - **Restringir un comando por rol/canal:** el ID de rol o canal sale de
   `settings.py` (nunca hardcodeado), y el chequeo se hace al inicio del

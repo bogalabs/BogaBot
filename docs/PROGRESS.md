@@ -142,6 +142,14 @@ _Última actualización: 2026-09-29_
   - Incluye el índice troll (nunca había llegado al repo: el PR #7 se
     mergeó vacío).
 
+- [x] Criterios troll afinados para no castigar juego normal: muertes
+      según la duración, primera sangre solo temprana, delivery con mayoría
+      de muertes al rival, tanques y carries por daño exentos de "poco
+      daño"/"pacifista"/"poco farm", control wards solo con visión floja,
+      FF y barrida solo como agravantes, base perdida sin contar split push,
+      throw solo si lo agarraron solo, ahorrista solo antes del 25.
+      `TIMELINE_VERSION` 3 — 2026-09-29
+
 ## 🚧 En progreso
 - [ ] _(nada activo)_
 

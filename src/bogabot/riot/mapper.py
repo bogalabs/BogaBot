@@ -149,6 +149,8 @@ def map_match(
         team_deaths=_sum(team, "deaths"),
         enemy_kills=_sum(enemies, "kills"),
         team_damage=_sum(team, "totalDamageDealtToChampions"),
+        damage_taken=_opt_int(participant, "totalDamageTaken"),
+        team_damage_taken=_sum(team, "totalDamageTaken"),
     )
     if timeline is not None:
         _apply_timeline(
@@ -174,7 +176,7 @@ def _opt_int(participant: dict, key: str) -> int | None:
 _MINUTE_MS = 60_000
 # Versión del análisis de timeline. Subirla cuando se agregan datos nuevos:
 # `/trolls-recalcular` completa los registros con una versión anterior.
-TIMELINE_VERSION = 2
+TIMELINE_VERSION = 3
 # Posición aproximada de cada nexo en la Grieta (coordenadas del mapa).
 _NEXUS_POSITION = {100: (1550, 1660), 200: (13200, 13200)}
 # Más lejos que esto del propio nexo = "no estaba defendiendo la base".
@@ -184,8 +186,17 @@ _BASE_TOWERS = {"NEXUS_TURRET", "BASE_TURRET"}
 # Si morís primero y en este lapso pierden un objetivo grande, es un "throw".
 _THROW_WINDOW_MS = 60_000
 _THROW_OBJECTIVES = {"BARON_NASHOR": "el Barón", "ELDER_DRAGON": "el Dragón Ancestral"}
-# Oro sin gastar encima al morir para considerarlo "ahorrista".
+# Oro sin gastar encima al morir para considerarlo "ahorrista". Solo cuentan
+# muertes antes de `_RICH_DEATH_MAX_MS`: en late, con la build completa,
+# tener oro encima es normal.
 _RICH_DEATH_GOLD = 3000
+_RICH_DEATH_MAX_MS = 25 * _MINUTE_MS
+# Una muerte "aislada" (lo agarraron solo) no tiene otras kills de su equipo
+# (a favor o en contra) en esta ventana alrededor.
+_ISOLATED_WINDOW_MS = 10_000
+# Si tiró estructuras enemigas en este lapso alrededor de cuando caía la base
+# propia, estaba haciendo split push (válido), no farmeando.
+_SPLIT_PUSH_WINDOW_MS = 60_000
 # AFK: se movió menos que esto entre dos frames y no ganó experiencia.
 _AFK_MAX_MOVE = 150
 # Ventana en la que se considera que el jugador sigue muerto (aprox.).
@@ -286,9 +297,16 @@ def _base_absence(frames: list[dict], events: list[dict], me: int, team_id: int,
     if nexus is None:
         return {}
     absent, farming = 0, None
+    my_structures = [
+        int(e.get("timestamp", 0)) for e in events
+        if e.get("type") == "BUILDING_KILL" and e.get("teamId") not in (None, team_id)
+        and (e.get("killerId") == me or me in (e.get("assistingParticipantIds") or []))
+    ]
     for t in _base_losses(events, team_id):
         if _dead_at(death_times, t):
             continue
+        if any(abs(t - b) <= _SPLIT_PUSH_WINDOW_MS for b in my_structures):
+            continue  # estaba tirando la base enemiga: carrera de split push
         pos = (_pframe(_frame_near(frames, t), me) or {}).get("position")
         if not pos:
             continue
@@ -328,14 +346,30 @@ def _throws(events: list[dict], kills: list[dict], me: int, team_id: int,
     for t, name in objectives:
         team_deaths = [e for e in kills if e.get("victimId") in teammates
                        and 0 <= t - int(e.get("timestamp", 0)) <= _THROW_WINDOW_MS]
-        if team_deaths and team_deaths[0].get("victimId") == me:
+        if team_deaths and team_deaths[0].get("victimId") == me \
+                and _isolated(kills, team_deaths[0], teammates):
             count += 1
             first = first or name
     return {"throw_deaths": count, "throw_objective": first}
 
 
+def _isolated(kills: list[dict], death: dict, teammates: set[int]) -> bool:
+    """True si al morir no había pelea: ninguna otra kill de su equipo (como
+    víctima, asesino o asistencia) cerca en el tiempo. O sea, lo agarraron
+    solo; no es el tanque que abre una pelea y cae primero."""
+    t = int(death.get("timestamp", 0))
+    for e in kills:
+        if e is death or abs(int(e.get("timestamp", 0)) - t) > _ISOLATED_WINDOW_MS:
+            continue
+        involved = {e.get("victimId"), e.get("killerId"), *(e.get("assistingParticipantIds") or [])}
+        if involved & teammates - {death.get("victimId")} or e.get("victimId") in teammates:
+            return False
+    return True
+
+
 def _rich_deaths(frames: list[dict], death_times: list[int], me: int) -> dict:
-    golds = [int((_pframe(_frame_before(frames, t), me) or {}).get("currentGold", 0)) for t in death_times]
+    golds = [int((_pframe(_frame_before(frames, t), me) or {}).get("currentGold", 0))
+             for t in death_times if t < _RICH_DEATH_MAX_MS]
     rich = [g for g in golds if g >= _RICH_DEATH_GOLD]
     return {"rich_deaths": len(rich), "max_gold_on_death": max(golds, default=0)}
 
