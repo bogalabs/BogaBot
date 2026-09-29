@@ -124,35 +124,78 @@ class TrollService:
             s.display_name = r.game_name or s.display_name
             s.games += 1
             s.points += v.points
+            s.index_points += min(v.points, self.config.index_max_game_points)
             s.troll_games += 1 if v.level >= TrollLevel.TROLL else 0
             s.papelones += 1 if v.level >= TrollLevel.PAPELON else 0
             for f in v.flags:
                 s.flag_counts[f.code] = s.flag_counts.get(f.code, 0) + 1
             if v.points > 0 and (s.worst is None or v.points > s.worst.points):
                 s.worst = v
+        # Índice = promedio suavizado (bayesiano): se suman `prior_games`
+        # partidas "fantasma" que valen el promedio del grupo. Con pocas
+        # partidas el índice queda cerca del grupo; con más, pesa lo propio.
+        # Así no importa cuántas jugaste, pero una sola partida mala tampoco
+        # te corona por azar.
+        total_games = sum(s.games for s in by_player.values())
+        group_mean = sum(s.index_points for s in by_player.values()) / total_games if total_games else 0.0
+        prior = self.config.index_prior_games
+        for s in by_player.values():
+            s.index = (s.index_points + prior * group_mean) / (s.games + prior)
         rows = sorted(
             by_player.values(),
-            # Por índice (promedio por partida), no por total: la cantidad de
-            # partidas no debe pesar. Desempata el total y los papelones.
-            key=lambda s: (-s.index, -s.points, -s.papelones, s.display_name.lower()),
+            # Por índice, no por total: la cantidad de partidas no debe pesar.
+            # Los limpios (0 pts) siempre al fondo, aunque el suavizado les dé
+            # un índice > 0. Desempatan papelones, trolleadas y promedio crudo.
+            key=lambda s: (s.points == 0, -round(s.index, 6), -s.papelones, -s.troll_games,
+                           -s.average, s.display_name.lower()),
         )
         for i, s in enumerate(rows, 1):
             s.rank = i
         return rows
 
-    async def standings(self, period: str) -> list[TrollStanding]:
-        """Ranking troll de un período de `PERIODS`."""
+    def _windows(self, period: str) -> tuple[tuple[datetime, datetime], tuple[datetime, datetime]]:
+        """(ventana del período, ventana anterior para la tendencia)."""
         tz = self._settings.timezone
-        if period == "all":
-            return self._aggregate(await self._matches.get_all_matches())
         if period == "prev_week":
             until = start_of_week(tz)
             since = until - timedelta(days=7)
-        elif period == "month":
-            since, until = start_of_month(tz), now(tz)
-        else:
-            since, until = start_of_week(tz), now(tz)
-        return self._aggregate(await self._matches.get_matches(since, until))
+            return (since, until), (since - timedelta(days=7), since)
+        if period == "month":
+            since = start_of_month(tz)
+            return (since, now(tz)), (start_of_month(tz, since - timedelta(days=1)), since)
+        since = start_of_week(tz)
+        return (since, now(tz)), (since - timedelta(days=7), since)
+
+    async def standings(self, period: str) -> list[TrollStanding]:
+        """Ranking troll de un período de `PERIODS`, con el índice del
+        período anterior de cada jugador para mostrar la tendencia."""
+        if period == "all":
+            return self._aggregate(await self._matches.get_all_matches())
+        (since, until), (prev_since, prev_until) = self._windows(period)
+        rows = self._aggregate(await self._matches.get_matches(since, until))
+        previous = {s.discord_id: s.index
+                    for s in self._aggregate(await self._matches.get_matches(prev_since, prev_until))}
+        for s in rows:
+            s.previous_index = previous.get(s.discord_id)
+        return rows
+
+    def tier(self, index: float) -> str:
+        """Categoría según el índice (relativa al umbral de alerta troll)."""
+        troll = self.config.troll_level
+        for limit, label in ((troll / 12, "😇 Santo"), (troll / 4, "🙂 Tranqui"),
+                             (troll / 2, "😬 Sospechoso"), (troll, "🤡 Troll")):
+            if index < limit:
+                return label
+        return "💀 Leyenda troll"
+
+    @staticmethod
+    def trend(s: TrollStanding) -> str:
+        if s.previous_index is None:
+            return "🆕"
+        diff = s.index - s.previous_index
+        if abs(diff) < 0.5:
+            return "➡️"
+        return f"{'📈' if diff > 0 else '📉'} {diff:+.1f}"
 
     async def had_trolls_today(self) -> bool:
         tz = self._settings.timezone
@@ -250,8 +293,9 @@ class TrollService:
             crown = " 👑" if standing.rank == 1 else ""
             embed.add_field(
                 name="📆 En la semana",
-                value=(f"Índice troll **{standing.index:.1f}** pts/partida ({standing.points} pts en "
-                       f"{standing.games} partidas) · puesto **#{standing.rank}** de {players}{crown}\n"
+                value=(f"Índice troll **{standing.index:.1f}** {self.tier(standing.index)} "
+                       f"({standing.points} pts en {standing.games} partidas) · "
+                       f"puesto **#{standing.rank}** de {players}{crown}\n"
                        f"🚨 {standing.troll_games} trolleadas · 💀 {standing.papelones} papelones"),
                 inline=False,
             )
@@ -261,7 +305,9 @@ class TrollService:
     def build_standings_embed(self, rows: list[TrollStanding], period: str) -> discord.Embed:
         embed = discord.Embed(title=f"🤡 Ranking troll {PERIODS.get(period, '')}".strip(),
                               color=discord.Color.orange())
-        embed.set_footer(text="Índice troll = puntos troll promedio por partida (no importa cuántas jugaste). Mirá /trolls-reglas.")
+        embed.set_footer(text=("Índice troll = puntos por partida, suavizado hacia el promedio del grupo: "
+                               "no importa cuántas jugaste, pero 1 partida suelta no alcanza. "
+                               "Tendencia vs. el período anterior. Mirá /trolls-reglas."))
         guilty = [s for s in rows if s.points > 0]
         clean = [s for s in rows if s.points == 0]
         if not rows:
@@ -273,13 +319,15 @@ class TrollService:
             blocks: list[str] = []
             for s in guilty[:10]:
                 medal = _PODIUM.get(s.rank, f"`#{s.rank}`")
-                lines = [f"{medal} **{s.display_name}** — índice **{s.index:.1f}** "
-                         f"({s.points} pts en {s.games} partida{'s' if s.games > 1 else ''})"]
+                trend = f" · {self.trend(s)}" if period != "all" else ""
+                lines = [f"{medal} **{s.display_name}** — índice **{s.index:.1f}** {self.tier(s.index)}{trend}",
+                         f"{s.points} pts en {s.games} partida{'s' if s.games > 1 else ''} "
+                         f"(promedio {s.average:.1f}, {s.troll_rate * 100:.0f}% trolleadas)"]
                 counts = []
                 if s.troll_games:
                     counts.append(f"🚨 {s.troll_games} trolleada{'s' if s.troll_games > 1 else ''}")
                 if s.papelones:
-                    counts.append(f"💀 {s.papelones} papelón{'es' if s.papelones > 1 else ''}")
+                    counts.append(f"💀 {s.papelones} {'papelones' if s.papelones > 1 else 'papelón'}")
                 if s.flag_counts:
                     code, times = max(s.flag_counts.items(), key=lambda kv: kv[1])
                     spec = RULES.get(code)
@@ -303,7 +351,7 @@ class TrollService:
         if top is None:
             return None, embed
         return (f"👑 <@{top.discord_id}> es el **Troll de la semana** con un índice de "
-                f"{top.index:.1f} pts por partida. "
+                f"{top.index:.1f} ({self.tier(top.index)}). "
                 f"Aplausos. 👏"), embed
 
     def build_rules_embed(self) -> discord.Embed:
@@ -315,8 +363,10 @@ class TrollService:
             f"• **{c.troll_level}+ pts** → 🚨 alerta troll\n"
             f"• **{c.papelon_level}+ pts** → 💀 papelón histórico en {general}\n"
             f"• En ranked ×{c.ranked_multiplier:g} · si igual ganaron ×{c.win_multiplier:g}\n"
-            "El ranking troll (`/trolls`) ordena por **índice**: puntos promedio por partida, "
-            "así que jugar mucho no te hunde ni te salva.\n\n"
+            "El ranking troll (`/trolls`) ordena por **índice**: puntos por partida, así que "
+            "jugar mucho no te hunde ni te salva. Para que 1 partida suelta no decida, cada uno "
+            f"arranca con {c.index_prior_games:g} partidas con el promedio del grupo y una partida "
+            f"cuenta como mucho {c.index_max_game_points:g} pts.\n\n"
         )
         lines = [
             f"{spec.emoji} **{spec.title}** (+{int(cfg.params['points'])}) — {spec.description}"

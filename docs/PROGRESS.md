@@ -122,6 +122,13 @@ _Última actualización: 2026-09-28_
   - Tests: mapper con JSON de match-v5 + timeline, reglas, config, ranking
     troll, ingesta y ruteo de avisos (58 en total).
 
+- [x] Ranking troll por **índice** en vez de suma de puntos (antes ganaba
+      el que más jugaba). Índice = puntos por partida suavizado hacia el
+      promedio del grupo (`index.prior_games`, default 2) y con tope por
+      partida (`index.max_game_points`, default 30). `/trolls` muestra
+      categoría (😇 Santo → 💀 Leyenda troll), % de partidas trolleadas y
+      tendencia vs. el período anterior — 2026-09-29
+
 ## 🚧 En progreso
 - [ ] _(nada activo)_
 

@@ -416,10 +416,20 @@ class TrollStanding:
     papelones: int = 0  # partidas con nivel PAPELON
     flag_counts: dict[str, int] = field(default_factory=dict)  # code -> veces
     worst: TrollVerdict | None = None  # la partida con más puntos del período
+    # Índice troll: puntos por partida suavizados hacia el promedio del grupo
+    # (ver `TrollService._aggregate`). Es lo que ordena el ranking: jugar
+    # mucho no suma por sí solo, el que la trollea fuerte en 2 partidas queda
+    # arriba del que jugó 18 y trolleó 2.
+    index: float = 0.0
+    index_points: float = 0.0  # suma de puntos con el tope por partida aplicado
+    previous_index: float | None = None  # índice del período anterior (tendencia)
 
     @property
-    def index(self) -> float:
-        """Índice troll: puntos troll promedio por partida. Es lo que ordena
-        el ranking, así jugar mucho no suma por sí solo: el que la trollea
-        fuerte en 2 partidas queda arriba del que jugó 18 y trolleó 2."""
+    def average(self) -> float:
+        """Puntos troll promedio por partida, sin suavizar."""
         return self.points / self.games if self.games else 0.0
+
+    @property
+    def troll_rate(self) -> float:
+        """Fracción de partidas que llegaron a alerta troll."""
+        return self.troll_games / self.games if self.games else 0.0

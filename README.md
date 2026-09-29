@@ -320,9 +320,13 @@ estuvo caído o alguien se vinculó hoy, lo viejo suma al ranking pero no
 spamea. Todo se ajusta en **`config/trolls.yaml`** sin tocar código (puntos,
 umbrales por modo, apagar reglas, niveles, multiplicadores); como el
 ranking troll se calcula al vuelo, un cambio ahí recalcula también el
-historial. El ranking ordena por **índice troll** (puntos promedio por
-partida), no por el total: el que la trollea fuerte en 2 partidas queda
-arriba del que jugó 18 y trolleó 2. Además, el job diario postea cómo va el ranking troll de la
+historial. El ranking ordena por **índice troll** (puntos por partida),
+no por el total: el que la trollea fuerte en 2 partidas queda arriba del
+que jugó 18 y trolleó 2. Para que 1 partida suelta no decida por azar, el
+índice se suaviza hacia el promedio del grupo (`index.prior_games`) y una
+sola partida cuenta como mucho `index.max_game_points`. `/trolls` muestra
+además una categoría (😇 Santo → 💀 Leyenda troll) y la tendencia contra
+el período anterior (📈/📉). Además, el job diario postea cómo va el ranking troll de la
 semana si hubo trolleadas ese día, y los lunes corona al **Troll de la
 semana**.
 

@@ -202,8 +202,11 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   opcionales: los registros viejos quedan en `None` y esas reglas se
   saltean (`/trolls-recalcular` los completa vía `update_match`). El
   veredicto NO se persiste: el ranking troll se calcula al vuelo y ordena
-  por **índice** (`TrollStanding.index` = puntos promedio por partida, no el
-  total, para que la cantidad de partidas no pese), así que
+  por **índice** (`TrollStanding.index`: puntos por partida, no el total,
+  para que la cantidad de partidas no pese; suavizado bayesiano hacia el
+  promedio del grupo con `index.prior_games` partidas "fantasma" y con tope
+  `index.max_game_points` por partida, para que 1 partida suelta o un
+  papelón monstruoso no decidan solos; los de 0 pts van siempre al fondo), así que
   cambiar el YAML recalcula el historial. Niveles: `levels.troll` → alerta
   en `TROLL_CHANNEL_ID` (default `RANKING_CHANNEL_ID`); `levels.papelon` →
   **papelón histórico en `GENERAL_CHANNEL_ID`** (solo lo muy fuerte; si

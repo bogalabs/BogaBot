@@ -34,6 +34,20 @@ ranked_multiplier: 1.25  # trollear en ranked duele más
 win_multiplier: 0.5      # si ganaron igual, el daño fue menor
 alert_max_age_hours: 36  # partidas más viejas (bot caído, alguien recién vinculado) no se avisan
 
+# Índice troll: lo que ordena el ranking (/trolls, recap diario, Troll de la
+# semana). Es el promedio de puntos troll POR PARTIDA, así jugar mucho no
+# pesa: el que la trollea fuerte en 2 partidas queda arriba del que jugó 18
+# y trolleó 2. Dos ajustes para que no lo decida la suerte:
+index:
+  # Cada jugador arranca con esta cantidad de partidas "fantasma" que valen
+  # el promedio del grupo en el período. Con pocas partidas el índice queda
+  # cerca del promedio del grupo y se despega a medida que juega: 1 partida
+  # mala suelta no te corona, 2 muy malas sí. 0 = promedio puro.
+  prior_games: 2
+  # Tope de puntos de una sola partida dentro del índice (el papelón igual
+  # se avisa con todos sus puntos): un desastre aislado no define la semana.
+  max_game_points: 30
+
 rules:
   # 🍽️ Muchas muertes y KDA < 1. +1 cada `extra_every` muertes de más (hasta `max_extra`).
   feeder:           { points: 3, min_deaths: 10, min_deaths_aram: 14, min_deaths_chaos: 16, max_kda: 1.0, extra_every: 2, max_extra: 3 }

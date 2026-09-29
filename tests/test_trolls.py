@@ -6,6 +6,7 @@ import asyncio
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -193,6 +194,16 @@ class TestTrollConfig(unittest.TestCase):
             self._load("levels: {troll: 10, papelon: 5}\n")
         with self.assertRaises(TrollConfigError):
             load_troll_config("/no/existe/trolls.yaml")
+        with self.assertRaises(TrollConfigError):
+            self._load("index: {prior_game: 2}\n")
+        with self.assertRaises(TrollConfigError):
+            self._load("index: {max_game_points: 0}\n")
+
+    def test_index_config(self):
+        cfg = self._load("index: {prior_games: 0, max_game_points: 15}\n")
+        self.assertEqual((cfg.index_prior_games, cfg.index_max_game_points), (0, 15))
+        repo = load_troll_config(str(_REPO_YAML))
+        self.assertEqual((repo.index_prior_games, repo.index_max_game_points), (2, 30))
 
 
 class TestTrollService(unittest.TestCase):
@@ -258,9 +269,53 @@ class TestTrollService(unittest.TestCase):
         self.assertGreater(by_name["Mucho"].points, by_name["Heavy"].points)  # más total...
         self.assertLess(by_name["Mucho"].index, by_name["Heavy"].index)  # ...pero menos índice
         self.assertEqual([s.display_name for s in rows], ["Heavy", "Mucho", "Grinder"])
-        self.assertAlmostEqual(by_name["Grinder"].index, by_name["Grinder"].points / 18)
+        self.assertAlmostEqual(by_name["Grinder"].average, by_name["Grinder"].points / 18)
         embed = self.service.build_standings_embed(rows, "week")
         self.assertIn("índice", embed.description)
+
+    def _service_with(self, **index) -> TrollService:
+        cfg = replace(TrollConfig.default(), **index)
+        settings = SimpleNamespace(timezone=_TZ, general_channel_id=999)
+        return TrollService(self.store, TrollDetector(cfg), settings)  # type: ignore[arg-type]
+
+    def test_single_lucky_game_does_not_crown_you(self):
+        # "Suerte": 1 partida con alerta justa. "Constante": 6 partidas, todas feas.
+        self._save(match_id="LA2_S0", discord_id=1, game_name="Suerte", kills=1, deaths=12, assists=2)
+        for i in range(6):
+            self._save(match_id=f"LA2_C{i}", discord_id=2, game_name="Constante", kills=1, deaths=11, assists=2)
+        for i in range(6):
+            self._save(match_id=f"LA2_L{i}", discord_id=3, game_name="Limpio")
+        rows = asyncio.run(self.service.standings("week"))
+        by_name = {s.display_name: s for s in rows}
+        self.assertGreater(by_name["Suerte"].average, by_name["Constante"].average)  # crudo: gana Suerte
+        self.assertEqual(rows[0].display_name, "Constante")  # suavizado: gana el constante
+        self.assertEqual(rows[-1].display_name, "Limpio")  # los limpios siempre al fondo
+        # Con prior_games 0 vuelve a ser el promedio puro.
+        pure = asyncio.run(self._service_with(index_prior_games=0).standings("week"))
+        self.assertEqual(pure[0].display_name, "Suerte")
+
+    def test_one_monster_game_is_capped(self):
+        monster = dict(kills=0, deaths=25, assists=0, items_sold=9, deaths_before_10=6,
+                       deaths_to_lane_opponent=10, gold_diff_15=-6000, time_dead_seconds=900,
+                       gave_first_blood=True, first_death_minute=1, queue_id=440)
+        self._save(match_id="LA2_X", discord_id=1, game_name="Monstruo", **monster)
+        [row] = asyncio.run(self._service_with(index_max_game_points=10, index_prior_games=0).standings("week"))
+        self.assertGreater(row.points, 10)
+        self.assertEqual(row.index, 10)  # en el índice la partida vale como mucho el tope
+
+    def test_trend_and_tiers(self):
+        feeder = dict(kills=1, deaths=12, assists=2)
+        self._save(match_id="LA2_T1", discord_id=1, game_name="Sube", **feeder)
+        self._save(match_id="LA2_T0", discord_id=1, game_name="Sube",
+                   game_creation=self.week_start - timedelta(days=2))
+        self._save(match_id="LA2_N1", discord_id=2, game_name="Nuevo", **feeder)
+        rows = {s.display_name: s for s in asyncio.run(self.service.standings("week"))}
+        self.assertIsNotNone(rows["Sube"].previous_index)
+        self.assertTrue(self.service.trend(rows["Sube"]).startswith("📈"))
+        self.assertEqual(self.service.trend(rows["Nuevo"]), "🆕")
+        self.assertEqual(self.service.tier(0), "😇 Santo")
+        self.assertEqual(self.service.tier(2), "😬 Sospechoso")
+        self.assertEqual(self.service.tier(6), "💀 Leyenda troll")
 
     def test_is_fresh(self):
         now = datetime.now(timezone.utc)
