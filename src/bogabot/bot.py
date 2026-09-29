@@ -19,6 +19,7 @@ from bogabot.modules.lol.ingest import IngestService
 from bogabot.modules.lol.ranking import RankingService
 from bogabot.modules.lol.riot_key import RiotKeyCog, RiotKeyStore
 from bogabot.modules.lol.scheduler import LolScheduler
+from bogabot.modules.lol.trolls import TrollService
 from bogabot.modules.points.cog import PointsCog
 from bogabot.modules.points.store import PointsStore
 from bogabot.modules.sounds.cog import SoundsCog
@@ -27,6 +28,8 @@ from bogabot.scoring.engine import ScoringEngine
 from bogabot.scoring.schema import load_scoring_config
 from bogabot.settings import Settings
 from bogabot.storage.discord_channel import DiscordChannelStorage
+from bogabot.trolls.detector import TrollDetector
+from bogabot.trolls.schema import load_troll_config
 
 log = logging.getLogger(__name__)
 
@@ -57,12 +60,14 @@ class BogaBot(commands.Bot):
         self.riot_key_state = self.riot_key_store.resolve(settings.riot_api_key)
         self.riot.set_api_key(self.riot_key_state.api_key)
         self.scoring = ScoringEngine(load_scoring_config(settings.scoring_config_path))
+        self.troll_detector = TrollDetector(load_troll_config(settings.trolls_config_path))
         self.storage = DiscordChannelStorage(settings)
         self.points = PointsStore(settings.points_file)
 
         # --- Servicios de dominio (dependen solo de interfaces) ---
         self.ingest = IngestService(self.riot, self.storage, self.storage, settings)
         self.ranking = RankingService(self.storage, self.scoring, settings)
+        self.trolls = TrollService(self.storage, self.troll_detector, settings)
 
     async def setup_hook(self) -> None:
         await self.riot.start()

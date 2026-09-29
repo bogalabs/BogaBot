@@ -42,6 +42,12 @@ class MatchRepository(ABC):
         ...
 
     @abstractmethod
+    async def update_match(self, record: MatchRecord) -> None:
+        """Reemplaza un registro ya guardado (misma dedup_key) por `record`,
+        ej. para completarle stats que se agregaron después. Si no existía,
+        lo guarda."""
+
+    @abstractmethod
     async def match_exists(self, match_id: str, discord_id: int) -> bool:
         """Dedup: True si ese jugador (por discord_id) + partida ya está guardado."""
 
