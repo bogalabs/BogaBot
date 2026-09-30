@@ -1,6 +1,6 @@
 """Cog con los slash commands del módulo LoL:
 /link, /unlink, /link-admin, /unlink-admin, /ingest-now, /ranking,
-/trolls, /trolls-reglas, /troll-analizar, /trolls-recalcular.
+/trolls, /trolls-reglas, /troll-analizar, /trolls-recalcular, /trolls-reiniciar.
 
 El cog es "delgado": valida input, llama a los servicios (riot, storage,
 ranking, trolls) y responde. Toda la lógica de negocio vive en los
@@ -315,6 +315,21 @@ class LolCog(commands.Cog):
             return
         verdict = self.bot.trolls.evaluate(record)
         await interaction.followup.send(embed=self.bot.trolls.build_analysis_embed(verdict))
+
+    @app_commands.command(
+        name="trolls-reiniciar",
+        description="Reinicia el ranking troll: desde ahora cuenta de cero (solo rol dev).",
+    )
+    async def trolls_reiniciar(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        if not await self._check_admin(interaction):
+            return
+        when = await self.bot.trolls.reset_ranking()
+        log.warning("Ranking troll reiniciado por %s.", interaction.user)
+        await interaction.followup.send(
+            f"🔄 Ranking troll reiniciado ({discord.utils.format_dt(when, 'f')}). Desde ahora cuenta de "
+            f"cero, por índice (puntos por partida). Las partidas viejas quedan guardadas pero no suman."
+        )
 
     @app_commands.command(
         name="trolls-recalcular",

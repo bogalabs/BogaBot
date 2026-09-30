@@ -105,6 +105,8 @@ class MatchRecord:
     team_deaths: int | None = None
     enemy_kills: int | None = None
     team_damage: int | None = None
+    damage_taken: int | None = None  # para distinguir al tanque que absorbe del que no pelea
+    team_damage_taken: int | None = None
     # Del timeline de la partida (None si no se pudo pedir).
     first_death_minute: int | None = None
     deaths_before_10: int | None = None
@@ -113,6 +115,15 @@ class MatchRecord:
     items_sold: int | None = None
     deaths_to_lane_opponent: int | None = None
     gold_diff_15: int | None = None  # oro propio - oro del rival de línea al minuto 15
+    # Situaciones del timeline (v2): posiciones, edificios y objetivos.
+    base_absent: int | None = None  # estructuras de la base propia perdidas mientras estaba lejos y vivo
+    base_absent_farming: str | None = None  # "jungla"/"línea" si farmeaba mientras caía la base
+    throw_deaths: int | None = None  # veces que murió primero y enseguida perdieron Barón/Ancestral/nexo
+    throw_objective: str | None = None  # qué perdieron la primera vez (para la anécdota)
+    afk_minutes: int | None = None  # racha más larga de minutos quieto, vivo y sin ganar experiencia
+    rich_deaths: int | None = None  # muertes con mucho oro sin gastar encima
+    max_gold_on_death: int | None = None
+    timeline_version: int | None = None  # versión del análisis de timeline aplicado (ver mapper)
 
     @property
     def dedup_key(self) -> str:
@@ -141,6 +152,12 @@ class MatchRecord:
         if not self.team_damage:
             return None
         return self.damage_to_champions / self.team_damage
+
+    @property
+    def damage_taken_share(self) -> float | None:
+        if self.damage_taken is None or not self.team_damage_taken:
+            return None
+        return self.damage_taken / self.team_damage_taken
 
     @property
     def has_extended_stats(self) -> bool:
@@ -213,6 +230,8 @@ class MatchRecord:
             team_deaths=_opt_int(d.get("team_deaths")),
             enemy_kills=_opt_int(d.get("enemy_kills")),
             team_damage=_opt_int(d.get("team_damage")),
+            damage_taken=_opt_int(d.get("damage_taken")),
+            team_damage_taken=_opt_int(d.get("team_damage_taken")),
             first_death_minute=_opt_int(d.get("first_death_minute")),
             deaths_before_10=_opt_int(d.get("deaths_before_10")),
             gave_first_blood=_opt_bool(d.get("gave_first_blood")),
@@ -220,15 +239,25 @@ class MatchRecord:
             items_sold=_opt_int(d.get("items_sold")),
             deaths_to_lane_opponent=_opt_int(d.get("deaths_to_lane_opponent")),
             gold_diff_15=_opt_int(d.get("gold_diff_15")),
+            base_absent=_opt_int(d.get("base_absent")),
+            base_absent_farming=d.get("base_absent_farming"),
+            throw_deaths=_opt_int(d.get("throw_deaths")),
+            throw_objective=d.get("throw_objective"),
+            afk_minutes=_opt_int(d.get("afk_minutes")),
+            rich_deaths=_opt_int(d.get("rich_deaths")),
+            max_gold_on_death=_opt_int(d.get("max_gold_on_death")),
+            timeline_version=_opt_int(d.get("timeline_version")),
         )
 
 
 # Campos opcionales de MatchRecord (se serializan solo si no son None).
 _OPTIONAL_RECORD_FIELDS = (
     "time_dead_seconds", "control_wards_bought", "question_pings", "placement",
-    "team_kills", "team_deaths", "enemy_kills", "team_damage",
+    "team_kills", "team_deaths", "enemy_kills", "team_damage", "damage_taken", "team_damage_taken",
     "first_death_minute", "deaths_before_10", "gave_first_blood", "executed_deaths",
     "items_sold", "deaths_to_lane_opponent", "gold_diff_15",
+    "base_absent", "base_absent_farming", "throw_deaths", "throw_objective",
+    "afk_minutes", "rich_deaths", "max_gold_on_death", "timeline_version",
 )
 
 
@@ -416,3 +445,20 @@ class TrollStanding:
     papelones: int = 0  # partidas con nivel PAPELON
     flag_counts: dict[str, int] = field(default_factory=dict)  # code -> veces
     worst: TrollVerdict | None = None  # la partida con más puntos del período
+    # Índice troll: puntos por partida suavizados hacia el promedio del grupo
+    # (ver `TrollService._aggregate`). Es lo que ordena el ranking: jugar
+    # mucho no suma por sí solo, el que la trollea fuerte en 2 partidas queda
+    # arriba del que jugó 18 y trolleó 2.
+    index: float = 0.0
+    index_points: float = 0.0  # suma de puntos con el tope por partida aplicado
+    previous_index: float | None = None  # índice del período anterior (tendencia)
+
+    @property
+    def average(self) -> float:
+        """Puntos troll promedio por partida, sin suavizar."""
+        return self.points / self.games if self.games else 0.0
+
+    @property
+    def troll_rate(self) -> float:
+        """Fracción de partidas que llegaron a alerta troll."""
+        return self.troll_games / self.games if self.games else 0.0

@@ -103,6 +103,7 @@ class Settings:
     # Scoring
     scoring_config_path: str
     trolls_config_path: str
+    trolls_state_file: str  # desde cuándo cuenta el ranking troll (/trolls-reiniciar)
     # Tiempo / scheduler
     timezone: str
     daily_post_hour: int
@@ -185,6 +186,7 @@ class Settings:
             riot_key_warn_minutes=max(0, int(os.getenv("RIOT_KEY_WARN_MINUTES", "120"))),
             scoring_config_path=os.getenv("SCORING_CONFIG_PATH", "config/scoring.yaml"),
             trolls_config_path=os.getenv("TROLLS_CONFIG_PATH", "config/trolls.yaml"),
+            trolls_state_file=os.getenv("TROLLS_STATE_FILE", "data/trolls_state.json"),
             timezone=os.getenv("TIMEZONE", "America/Argentina/Buenos_Aires"),
             daily_post_hour=hour,
             daily_post_minute=minute,

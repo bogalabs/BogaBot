@@ -3,7 +3,7 @@
 Documento **vivo**: actualizarlo a medida que avanza el proyecto. Marcar con
 `[x]` lo hecho y mover items entre secciones. Poner la fecha en cada cambio.
 
-_Última actualización: 2026-09-28_
+_Última actualización: 2026-09-29_
 
 ---
 
@@ -121,6 +121,34 @@ _Última actualización: 2026-09-28_
     margen de 1 día antes del lunes (partidas que cruzan la medianoche).
   - Tests: mapper con JSON de match-v5 + timeline, reglas, config, ranking
     troll, ingesta y ruteo de avisos (58 en total).
+
+- [x] Ranking troll por **índice** en vez de suma de puntos (antes ganaba
+      el que más jugaba). Índice = puntos por partida suavizado hacia el
+      promedio del grupo (`index.prior_games`, default 2) y con tope por
+      partida (`index.max_game_points`, default 30). `/trolls` muestra
+      categoría (😇 Santo → 💀 Leyenda troll), % de partidas trolleadas y
+      tendencia vs. el período anterior — 2026-09-29
+
+- [x] Detector de trolls v3 — 2026-09-29
+  - Situaciones nuevas del timeline: "nos tiraban la base y estaba
+    farmeando" (estructuras de la base perdidas estando vivo y lejos),
+    throw (murió primero y perdieron Barón/Ancestral/nexo), AFK (minutos
+    quieto sin ganar XP), morir con +3.000 de oro encima.
+  - #general recibe una línea corta y anecdótica por cada trolleada; el
+    detalle compacto va al canal de trolls. Ranking y reglamento más cortos.
+  - `/trolls-reiniciar` (dev) pone el ranking troll en cero
+    (`TROLLS_STATE_FILE`). `TIMELINE_VERSION` para que `/trolls-recalcular`
+    reanalice partidas viejas.
+  - Incluye el índice troll (nunca había llegado al repo: el PR #7 se
+    mergeó vacío).
+
+- [x] Criterios troll afinados para no castigar juego normal: muertes
+      según la duración, primera sangre solo temprana, delivery con mayoría
+      de muertes al rival, tanques y carries por daño exentos de "poco
+      daño"/"pacifista"/"poco farm", control wards solo con visión floja,
+      FF y barrida solo como agravantes, base perdida sin contar split push,
+      throw solo si lo agarraron solo, ahorrista solo antes del 25.
+      `TIMELINE_VERSION` 3 — 2026-09-29
 
 ## 🚧 En progreso
 - [ ] _(nada activo)_

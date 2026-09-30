@@ -60,6 +60,9 @@ class TrollDetector:
                     flags.append(TrollFlag(code, spec.emoji, spec.title, detail, points))
         superseded = {code for f in flags for code in RULES[f.code].supersedes}
         flags = [f for f in flags if f.code not in superseded]
+        # Los cargos de equipo (FF, barrida) solo agravan un cargo propio.
+        if all(RULES[f.code].aggravating for f in flags):
+            flags = []
         flags.sort(key=lambda f: f.points, reverse=True)
 
         base = sum(f.points for f in flags)

@@ -32,6 +32,9 @@ class TrollConfig:
     win_multiplier: float
     alert_max_age_hours: float  # partidas más viejas suman al ranking pero no se avisan
     rules: dict[str, RuleConfig]
+    # Índice troll (ranking): promedio suavizado de puntos por partida.
+    index_prior_games: float = 2.0  # partidas "fantasma" con el promedio del grupo
+    index_max_game_points: float = 30.0  # tope de puntos de UNA partida en el índice
 
     @classmethod
     def default(cls) -> "TrollConfig":
@@ -74,6 +77,17 @@ def _build(raw: dict) -> TrollConfig:
     if ranked_multiplier < 0 or win_multiplier < 0 or max_age <= 0:
         raise TrollConfigError("Los multiplicadores no pueden ser negativos y alert_max_age_hours debe ser > 0.")
 
+    index = raw.get("index") or {}
+    if not isinstance(index, dict):
+        raise TrollConfigError("'index' debe ser un mapa con 'prior_games' y 'max_game_points'.")
+    unknown_index = sorted(set(index) - {"prior_games", "max_game_points"})
+    if unknown_index:
+        raise TrollConfigError(f"Parámetros desconocidos en 'index': {unknown_index}.")
+    prior_games = _number(index.get("prior_games", 2), "index.prior_games")
+    max_game_points = _number(index.get("max_game_points", 30), "index.max_game_points")
+    if prior_games < 0 or max_game_points <= 0:
+        raise TrollConfigError("index.prior_games no puede ser negativo e index.max_game_points debe ser > 0.")
+
     raw_rules = raw.get("rules") or {}
     if not isinstance(raw_rules, dict):
         raise TrollConfigError("'rules' debe ser un mapa regla -> parámetros.")
@@ -107,4 +121,6 @@ def _build(raw: dict) -> TrollConfig:
         win_multiplier=win_multiplier,
         alert_max_age_hours=max_age,
         rules=rules,
+        index_prior_games=prior_games,
+        index_max_game_points=max_game_points,
     )
