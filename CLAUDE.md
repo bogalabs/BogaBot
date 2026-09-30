@@ -101,7 +101,10 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   `None`) en `MatchRecord` + extraerlo en `riot/mapper.py`, y la regla
   devuelve `None` si falta (registros viejos). Documentarla en
   `config/trolls.yaml` (un test chequea que estén todas). Si castiga lo
-  mismo que otra, usar `supersedes` para que no se sumen las dos.
+  mismo que otra, usar `supersedes` para que no se sumen las dos. Si es
+  culpa del equipo y no del jugador (FF, barrida), `aggravating=True`: solo
+  suma si hay algún cargo propio. Ojo: el YAML pisa los defaults del código;
+  si cambiás un default, actualizá también el YAML.
 - **Agregar un slash command LoL:** método nuevo en `modules/lol/cog.py`.
 - **Restringir un comando por rol/canal:** el ID de rol o canal sale de
   `settings.py` (nunca hardcodeado), y el chequeo se hace al inicio del
@@ -201,11 +204,23 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   antes del 10, oro vs. rival al 15, items vendidos, ejecuciones), todos
   opcionales: los registros viejos quedan en `None` y esas reglas se
   saltean (`/trolls-recalcular` los completa vía `update_match`). El
-  veredicto NO se persiste: el ranking troll se calcula al vuelo, así que
-  cambiar el YAML recalcula el historial. Niveles: `levels.troll` → alerta
-  en `TROLL_CHANNEL_ID` (default `RANKING_CHANNEL_ID`); `levels.papelon` →
-  **papelón histórico en `GENERAL_CHANNEL_ID`** (solo lo muy fuerte; si
-  #general falla, cae al canal de trolls). Solo se avisan partidas que
+  veredicto NO se persiste: el ranking troll se calcula al vuelo y ordena
+  por **índice** (`TrollStanding.index`: puntos por partida, no el total,
+  para que la cantidad de partidas no pese; suavizado bayesiano hacia el
+  promedio del grupo con `index.prior_games` partidas "fantasma" y con tope
+  `index.max_game_points` por partida, para que 1 partida suelta o un
+  papelón monstruoso no decidan solos; los de 0 pts van siempre al fondo), así que
+  cambiar el YAML recalcula el historial. `/trolls-reiniciar` guarda en
+  `TROLLS_STATE_FILE` desde cuándo cuenta el ranking. Avisos: desde
+  `levels.troll`, **una línea anecdótica corta en `GENERAL_CHANNEL_ID`**
+  (`TrollService.build_general_line`: los cargos más "contables" según
+  `STORY_PRIORITY`, cuyos `detail` están escritos como frases) + el detalle
+  compacto en `TROLL_CHANNEL_ID` (default `RANKING_CHANNEL_ID`); desde
+  `levels.papelon` es "trolleada histórica". Si #general falla, la línea
+  cae al canal de trolls. Las situaciones del timeline (base perdida
+  estando lejos, throw, AFK, morir con oro) las calcula `riot/mapper.py`;
+  si se agrega una, subir `TIMELINE_VERSION` para que `/trolls-recalcular`
+  reanalice las partidas viejas. Solo se avisan partidas que
   terminaron hace menos de `alert_max_age_hours`. Ranked multiplica los
   puntos, ganar igual los achica. El job diario postea el ranking troll de
   la semana si hubo trolleadas ese día y los lunes corona al "Troll de la

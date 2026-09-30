@@ -34,7 +34,7 @@ from bogabot.riot.client import (
     RiotPuuidMismatchError,
     RiotUnavailableError,
 )
-from bogabot.riot.mapper import is_remake, map_match, map_match_summary
+from bogabot.riot.mapper import TIMELINE_VERSION, is_remake, map_match, map_match_summary
 from bogabot.settings import Settings
 from bogabot.storage.base import LinkRepository, MatchRepository
 
@@ -285,9 +285,12 @@ class IngestService:
         return map_match_summary(data, puuid_to_discord)
 
     async def pending_enrichment(self) -> list[MatchRecord]:
-        """Partidas guardadas sin stats extendidas o sin timeline."""
+        """Partidas guardadas sin stats extendidas o con el timeline sin
+        analizar (o analizado por una versión anterior, sin las situaciones
+        nuevas)."""
         return sorted(
-            (r for r in await self._matches.get_all_matches() if not (r.has_extended_stats and r.has_timeline)),
+            (r for r in await self._matches.get_all_matches()
+             if not r.has_extended_stats or (r.timeline_version or 0) < TIMELINE_VERSION),
             key=lambda r: r.match_id,  # las de una misma partida seguidas: aprovechan la caché
         )
 

@@ -68,7 +68,8 @@ class BogaBot(commands.Bot):
         # --- Servicios de dominio (dependen solo de interfaces) ---
         self.ingest = IngestService(self.riot, self.storage, self.storage, settings)
         self.ranking = RankingService(self.storage, self.scoring, settings)
-        self.trolls = TrollService(self.storage, self.troll_detector, settings)
+        self.trolls = TrollService(self.storage, self.troll_detector, settings,
+                                   state_file=settings.trolls_state_file)
 
     async def setup_hook(self) -> None:
         await self.riot.start()

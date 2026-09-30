@@ -51,7 +51,7 @@ class HelpCog(commands.Cog):
                     "`/trolls [Semana|Semana pasada|Mes|Histórico]` — ranking de puntos troll.\n"
                     "`/troll-analizar [usuario] [partida]` — los cargos de una partida y por qué.\n"
                     "`/trolls-reglas` 🔒 — qué se detecta y cuántos puntos suma cada cosa.\n"
-                    "*(Después de cada partida se avisa a quien trollee; los papelones históricos van a general.)*"
+                    "*(Cada trolleada se cuenta en una línea en general; el ranking es por índice, jugar más no suma.)*"
                 ),
                 inline=False,
             )
@@ -84,6 +84,7 @@ class HelpCog(commands.Cog):
                     f"`/unlink-admin <usuario>`{admin_where} — desvinculá la cuenta de otro.\n"
                     f"`/ingest-now`{admin_where} — forzá una ingesta de partidas.\n"
                     f"`/trolls-recalcular`{admin_where} — completá las partidas viejas con los datos del detector troll.\n"
+                    f"`/trolls-reiniciar`{admin_where} — el ranking troll arranca de cero desde ahora.\n"
                     "`/puntos-dar <usuario> <cantidad>` — sumá o restá puntos.\n"
                     "`/sonido-forzar [nombre] [canal]` — el bot entra a un canal de voz y tira ese sonido.\n"
                     "`/sonido-add <nombre> <audio>` — subí un sonido permanente.\n"

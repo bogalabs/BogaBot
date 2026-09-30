@@ -17,8 +17,8 @@ cualquier ingesta (los dos loops o /ingest-now) dispara, una sola vez por
 partida:
   - el aviso "en vivo" con el cuadro de los 10 jugadores y el troll-o-metro
     (si hay MATCH_NOTIFY_CHANNEL_ID), y
-  - las alertas troll (canal de trolls) y los papelones históricos
-    (GENERAL_CHANNEL_ID), según el nivel que dé el detector de trolls.
+  - por cada trolleada, una línea anecdótica en GENERAL_CHANNEL_ID y el
+    detalle compacto en el canal de trolls.
 
 El dedup por (match_id, discord_id) de la ingesta y su lock hacen que correr
 los dos loops sea gratis (uno no duplica lo que ya trajo el otro).
@@ -189,8 +189,9 @@ class LolScheduler(commands.Cog):
             log.exception("Error mandando las alertas troll.")
 
     async def _announce_trolls(self, records: list[MatchRecord], verdicts: dict[str, TrollVerdict]) -> None:
-        """Alerta troll (canal de trolls) o papelón histórico (#general) por
-        cada jugador que pasó el umbral en una partida reciente."""
+        """Por cada jugador que pasó el umbral troll en una partida reciente:
+        una línea anecdótica en #general (si #general falla, en el canal de
+        trolls) y el detalle compacto en el canal de trolls."""
         trolls = self.bot.trolls
         flagged = [
             verdicts[r.dedup_key]
@@ -210,31 +211,29 @@ class LolScheduler(commands.Cog):
         week = await trolls.standings("week")
         by_player = {s.discord_id: s for s in week}
         troll_channel = await self._troll_channel()
-        general_channel: discord.TextChannel | None = None
+        general_channel = await self._text_channel(self.bot.settings.general_channel_id, "GENERAL_CHANNEL_ID")
         for v in fresh:
-            content, embed = trolls.build_alert(v, by_player.get(v.record.discord_id), len(week))
-            target = troll_channel
-            if v.level >= TrollLevel.PAPELON:
-                general_channel = general_channel or await self._text_channel(
-                    self.bot.settings.general_channel_id, "GENERAL_CHANNEL_ID")
-                target = general_channel or troll_channel
-            if target is None:
-                log.error("No tengo canal para la alerta troll de %s.", v.record.dedup_key)
-                continue
-            try:
-                await target.send(content, embed=embed, allowed_mentions=_USER_MENTIONS)
-            except discord.HTTPException:
-                log.exception("No pude mandar la alerta troll de %s a #%s.", v.record.dedup_key, target.name)
-                if target is troll_channel or troll_channel is None:
-                    continue
-                try:  # el papelón no entró en #general: que al menos quede en el de trolls
-                    await troll_channel.send(content, embed=embed, allowed_mentions=_USER_MENTIONS)
-                except discord.HTTPException:
-                    log.exception("Tampoco pude mandarla a #%s.", troll_channel.name)
-                    continue
-                target = troll_channel
-            log.info("Alerta troll %s (%d pts) de %s en #%s.",
-                     v.level.name, v.points, v.record.dedup_key, target.name)
+            # 1) Una línea corta y anecdótica en #general (con la mención).
+            line = trolls.build_general_line(v)
+            sent_line = await self._safe_send(general_channel, line) or (
+                general_channel is not troll_channel and await self._safe_send(troll_channel, line))
+            # 2) El detalle compacto (cargos y puntos) en el canal de trolls.
+            _, embed = trolls.build_alert(v, by_player.get(v.record.discord_id), len(week))
+            await self._safe_send(troll_channel, None, embed=embed)
+            log.info("Trolleada %s (%d pts) de %s avisada%s.", v.level.name, v.points,
+                     v.record.dedup_key, "" if sent_line else " (sin la línea de #general)")
+
+    async def _safe_send(self, channel: discord.TextChannel | None, content: str | None,
+                         embed: discord.Embed | None = None) -> bool:
+        """Manda sin romper el resto de los avisos si Discord falla."""
+        if channel is None:
+            return False
+        try:
+            await channel.send(content, embed=embed, allowed_mentions=_USER_MENTIONS)
+            return True
+        except discord.HTTPException:
+            log.exception("No pude mandar un aviso troll a #%s.", channel.name)
+            return False
 
     async def _notify_new_matches(self, records: list[MatchRecord], verdicts: dict[str, TrollVerdict]) -> None:
         """Postea un aviso (cuadro con las 10 posiciones + troll-o-metro) por
