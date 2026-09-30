@@ -65,7 +65,13 @@ class TrollDetector:
             flags = []
         flags.sort(key=lambda f: f.points, reverse=True)
 
-        base = sum(f.points for f in flags)
+        # Los cargos menores (mal rendimiento) suman con tope: para ser
+        # trolleada hace falta una señal fuerte (feedear, AFK, vender items,
+        # dejar caer la base, throw...), no una partida floja.
+        strong = sum(f.points for f in flags if not RULES[f.code].weak)
+        weak = sum(f.points for f in flags if RULES[f.code].weak)
+        capped = max(0, weak - int(self._config.weak_points_cap))
+        base = strong + weak - capped
         points = float(base)
         ranked = base > 0 and record.queue_id in RANKED_QUEUE_IDS
         if ranked:
@@ -83,4 +89,5 @@ class TrollDetector:
             level=self.level_for(total),
             ranked_bonus=ranked,
             carried=carried,
+            capped_points=capped,
         )

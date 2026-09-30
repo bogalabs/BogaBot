@@ -12,8 +12,8 @@
 #      (Solo/Duo o Flex) y por `win_multiplier` si igual ganaron (lo llevaron
 #      de mochila).
 #   3. Según el total:
-#        >= levels.troll   -> 🚨 ALERTA TROLL en el canal de trolls
-#        >= levels.papelon -> 💀 PAPELÓN HISTÓRICO en #general
+#        >= levels.troll   -> 🤡 trolleada: se avisa en el canal de trolls
+#        >= levels.papelon -> 💀 papelón: además, una línea en #general
 #      Por debajo de `troll` no se avisa aparte, pero igual suma al ranking
 #      troll (/trolls) y se ve en el aviso de partida terminada.
 #
@@ -27,10 +27,16 @@
 version: 1
 
 levels:
-  troll: 6      # desde acá se avisa en el canal de trolls
-  papelon: 18   # desde acá es PAPELÓN HISTÓRICO y va a #general (solo lo muy fuerte)
+  troll: 8      # desde acá es trolleada (canal de trolls). Necesita una señal fuerte.
+  papelon: 15   # desde acá es papelón y va también a #general (varias señales fuertes)
 
 ranked_multiplier: 1.25  # trollear en ranked duele más
+# Cargos "menores" (mal rendimiento: poca KP, poco daño, línea perdida,
+# visión, farm, primera sangre, FF...): entre todos suman como mucho esto.
+# Así una partida floja no es trolleada; para eso hace falta una señal
+# fuerte: feeder, AFK, 0 kills y 0 asistencias, ancla, vender items, dejar
+# caer la base, throw. En /trolls-reglas los menores tienen 🔸.
+weak_points_cap: 4
 win_multiplier: 0.5      # si ganaron igual, el daño fue menor
 alert_max_age_hours: 36  # partidas más viejas (bot caído, alguien recién vinculado) no se avisan
 
@@ -87,15 +93,15 @@ rules:
   # 🤖 Muertes sin campeón asesino (torre, minions, monstruos).
   executed:         { points: 1, min_deaths: 2 }
   # 💸 Items vendidos en la partida (normal: 1-3; muchos = inteo).
-  item_seller:      { points: 4, min_items: 6 }
+  item_seller:      { points: 5, min_items: 6 }
   # 🏚️ Estructuras de la base (inhibidores, torres del nexo, el nexo) perdidas
   # mientras él estaba vivo y lejos, sin estar tirando la base enemiga (split
   # push). Solo derrotas. +farming_bonus si en ese momento estaba farmeando.
-  base_absent:      { points: 4, min_structures: 2, farming_bonus: 2 }
+  base_absent:      { points: 5, min_structures: 2, farming_bonus: 3 }
   # 💥 Lo agarraron solo (sin pelea alrededor) y en menos de 1 minuto perdieron Barón/Ancestral/nexo.
   throw:            { points: 3, min_throws: 1, repeat_bonus: 1 }
   # 💤 Minutos seguidos quieto, vivo y sin ganar experiencia.
-  afk:              { points: 6, min_minutes: 3 }
+  afk:              { points: 8, min_minutes: 3 }
   # 💰 Muertes antes del minuto 25 con más de 3.000 de oro sin gastar encima.
   hoarder:          { points: 1, min_deaths: 2 }
   # 🏳️ Derrota por rendición antes de max_minutes (solo Grieta). Agravante:

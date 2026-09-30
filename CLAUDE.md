@@ -211,13 +211,19 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   `index.max_game_points` por partida, para que 1 partida suelta o un
   papelón monstruoso no decidan solos; los de 0 pts van siempre al fondo), así que
   cambiar el YAML recalcula el historial. `/trolls-reiniciar` guarda en
-  `TROLLS_STATE_FILE` desde cuándo cuenta el ranking. Avisos: desde
-  `levels.troll`, **una línea anecdótica corta en `GENERAL_CHANNEL_ID`**
+  `TROLLS_STATE_FILE` desde cuándo cuenta el ranking. Una partida floja no
+  es trolleada: las reglas `weak=True` (mal rendimiento) suman entre todas
+  como mucho `weak_points_cap`; hace falta una señal fuerte (feeder, AFK,
+  ghost, ancla, items vendidos, base, throw). Avisos: desde `levels.troll`,
+  en `TROLL_CHANNEL_ID` (default `RANKING_CHANNEL_ID`) la línea anecdótica
   (`TrollService.build_general_line`: los cargos más "contables" según
   `STORY_PRIORITY`, cuyos `detail` están escritos como frases) + el detalle
-  compacto en `TROLL_CHANNEL_ID` (default `RANKING_CHANNEL_ID`); desde
-  `levels.papelon` es "trolleada histórica". Si #general falla, la línea
-  cae al canal de trolls. Las situaciones del timeline (base perdida
+  compacto. **Solo desde `levels.papelon` la línea va a `GENERAL_CHANNEL_ID`**
+  (y en el canal de trolls queda solo el detalle, sin volver a etiquetar);
+  si #general falla, la línea cae al canal de trolls. `LolScheduler.backfill_job`
+  recalcula al arrancar, en silencio (`enrich_stored_matches(quiet=True)`:
+  logs solo DEBUG, nada a Discord, sin avisos), las partidas con
+  `timeline_version` vieja; se apaga solo. Las situaciones del timeline (base perdida
   estando lejos, throw, AFK, morir con oro) las calcula `riot/mapper.py`;
   si se agrega una, subir `TIMELINE_VERSION` para que `/trolls-recalcular`
   reanalice las partidas viejas. Solo se avisan partidas que

@@ -11,14 +11,19 @@
   notify_job (cada MATCH_POLL_INTERVAL_MINUTES):
     Ingiere seguido para detectar partidas recién terminadas.
 
+  backfill_job (al arrancar, y se apaga solo cuando no queda nada):
+    Recalcula en silencio las partidas guardadas con un análisis viejo del
+    timeline (ver `TIMELINE_VERSION`): sin mensajes ni logs visibles y sin
+    avisos; el único efecto es que la tabla troll queda al día.
+
 Los avisos por partida NO dependen de qué loop ingirió: el scheduler se
 registra como listener de `IngestService` (`_on_new_matches`), así que
 cualquier ingesta (los dos loops o /ingest-now) dispara, una sola vez por
 partida:
   - el aviso "en vivo" con el cuadro de los 10 jugadores y el troll-o-metro
     (si hay MATCH_NOTIFY_CHANNEL_ID), y
-  - por cada trolleada, una línea anecdótica en GENERAL_CHANNEL_ID y el
-    detalle compacto en el canal de trolls.
+  - por cada trolleada, la anécdota + el detalle en el canal de trolls; si
+    es papelón, la anécdota va además a GENERAL_CHANNEL_ID.
 
 El dedup por (match_id, discord_id) de la ingesta y su lock hacen que correr
 los dos loops sea gratis (uno no duplica lo que ya trajo el otro).
@@ -45,6 +50,8 @@ _LANE_ORDER = ("TOP", "JUNGLE", "MIDDLE", "BOTTOM", "UTILITY")
 # Cuántos match_id avisados se recuerdan para no repetir el aviso si un
 # segundo jugador de la misma partida aparece en una corrida posterior.
 _NOTIFIED_MEMORY = 500
+# El recálculo silencioso se rinde tras estas vueltas seguidas sin avanzar.
+_BACKFILL_MAX_IDLE_RUNS = 3
 # Las alertas etiquetan al jugador, pero nunca a roles ni @everyone.
 _USER_MENTIONS = discord.AllowedMentions(users=True, roles=False, everyone=False)
 
@@ -58,6 +65,7 @@ class LolScheduler(commands.Cog):
     def __init__(self, bot: "BogaBot") -> None:
         self.bot = bot
         self._notified: dict[str, None] = {}  # match_ids ya avisados (orden de inserción)
+        self._backfill_idle_runs = 0  # vueltas seguidas del recálculo sin avanzar nada
 
     async def cog_load(self) -> None:
         self.bot.ingest.add_listener(self._on_new_matches)
@@ -78,6 +86,7 @@ class LolScheduler(commands.Cog):
         # tienen que salir al terminar la partida, no recién a la noche.
         self.notify_job.change_interval(minutes=self.bot.settings.match_poll_interval_minutes)
         self.notify_job.start()
+        self.backfill_job.start()
         log.info("Chequeo de partidas nuevas cada %d minutos.",
                  self.bot.settings.match_poll_interval_minutes)
 
@@ -86,6 +95,8 @@ class LolScheduler(commands.Cog):
         self.daily_job.cancel()
         if self.notify_job.is_running():
             self.notify_job.cancel()
+        if self.backfill_job.is_running():
+            self.backfill_job.cancel()
 
     # --- Canales -----------------------------------------------------------
     async def _text_channel(self, channel_id: int | None, env_name: str) -> discord.TextChannel | None:
@@ -175,6 +186,31 @@ class LolScheduler(commands.Cog):
     async def _before_notify(self) -> None:
         await self.bot.wait_until_ready()
 
+    # --- Recálculo silencioso de partidas viejas --------------------------
+    @tasks.loop(minutes=10)
+    async def backfill_job(self) -> None:
+        """Completa las partidas guardadas con datos o análisis viejos. Corre
+        en silencio (logs solo a nivel DEBUG, nada a Discord) y se detiene
+        cuando no queda nada pendiente. Reintenta cada 10 min lo que falle
+        (ej. Riot caído); si varias vueltas seguidas no avanza (partidas que
+        Riot ya no tiene), se rinde hasta el próximo reinicio."""
+        if not self.bot.storage.ready:
+            return  # todavía hidratando: probamos en la próxima vuelta
+        try:
+            if not await self.bot.ingest.pending_enrichment():
+                self.backfill_job.cancel()
+                return
+            updated, _, failed = await self.bot.ingest.enrich_stored_matches(quiet=True)
+            self._backfill_idle_runs = 0 if updated else self._backfill_idle_runs + 1
+            if not failed or self._backfill_idle_runs >= _BACKFILL_MAX_IDLE_RUNS:
+                self.backfill_job.cancel()
+        except Exception:  # noqa: BLE001 - silencioso: se reintenta en la próxima vuelta
+            log.debug("Falló el recálculo silencioso; reintento más tarde.", exc_info=True)
+
+    @backfill_job.before_loop
+    async def _before_backfill(self) -> None:
+        await self.bot.wait_until_ready()
+
     # --- Avisos por partida (listener de IngestService) --------------------
     async def _on_new_matches(self, records: list[MatchRecord]) -> None:
         verdicts = {r.dedup_key: self.bot.trolls.evaluate(r) for r in records}
@@ -190,8 +226,9 @@ class LolScheduler(commands.Cog):
 
     async def _announce_trolls(self, records: list[MatchRecord], verdicts: dict[str, TrollVerdict]) -> None:
         """Por cada jugador que pasó el umbral troll en una partida reciente:
-        una línea anecdótica en #general (si #general falla, en el canal de
-        trolls) y el detalle compacto en el canal de trolls."""
+        la línea anecdótica (con la mención) y el detalle en el canal de
+        trolls. Si es papelón, la línea va además a #general (y en el canal
+        de trolls queda solo el detalle, para no etiquetar dos veces)."""
         trolls = self.bot.trolls
         flagged = [
             verdicts[r.dedup_key]
@@ -211,17 +248,20 @@ class LolScheduler(commands.Cog):
         week = await trolls.standings("week")
         by_player = {s.discord_id: s for s in week}
         troll_channel = await self._troll_channel()
-        general_channel = await self._text_channel(self.bot.settings.general_channel_id, "GENERAL_CHANNEL_ID")
+        general_channel = None
+        if any(v.level >= TrollLevel.PAPELON for v in fresh):
+            general_channel = await self._text_channel(self.bot.settings.general_channel_id, "GENERAL_CHANNEL_ID")
         for v in fresh:
-            # 1) Una línea corta y anecdótica en #general (con la mención).
             line = trolls.build_general_line(v)
-            sent_line = await self._safe_send(general_channel, line) or (
-                general_channel is not troll_channel and await self._safe_send(troll_channel, line))
-            # 2) El detalle compacto (cargos y puntos) en el canal de trolls.
             _, embed = trolls.build_alert(v, by_player.get(v.record.discord_id), len(week))
-            await self._safe_send(troll_channel, None, embed=embed)
+            papelon = v.level >= TrollLevel.PAPELON
+            # Solo el papelón sale en #general (una línea corta con la anécdota).
+            in_general = papelon and await self._safe_send(general_channel, line)
+            # El canal de trolls siempre lleva el detalle; la mención solo si no
+            # salió ya en #general (para no etiquetar dos veces).
+            await self._safe_send(troll_channel, None if in_general else line, embed=embed)
             log.info("Trolleada %s (%d pts) de %s avisada%s.", v.level.name, v.points,
-                     v.record.dedup_key, "" if sent_line else " (sin la línea de #general)")
+                     v.record.dedup_key, " también en #general" if in_general else "")
 
     async def _safe_send(self, channel: discord.TextChannel | None, content: str | None,
                          embed: discord.Embed | None = None) -> bool:

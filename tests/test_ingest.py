@@ -16,7 +16,7 @@ from fixtures import kill, match_json, timeline_json  # noqa: E402
 from bogabot.core.models import MatchRecord, PlayerLink  # noqa: E402
 from bogabot.core.timeutils import start_of_week, to_epoch_seconds  # noqa: E402
 from bogabot.modules.lol.ingest import IngestService  # noqa: E402
-from bogabot.riot.client import RiotPuuidMismatchError, RiotUnavailableError  # noqa: E402
+from bogabot.riot.client import NotFoundError, RiotPuuidMismatchError, RiotUnavailableError  # noqa: E402
 from bogabot.storage.memory import InMemoryStorage  # noqa: E402
 
 _TZ = "America/Argentina/Buenos_Aires"
@@ -203,6 +203,35 @@ class TestIngestPass(unittest.TestCase):
             self.assertTrue(enriched.has_extended_stats and enriched.has_timeline)
             self.assertEqual(enriched.dedup_key, legacy.dedup_key)
             self.assertEqual(await service.pending_enrichment(), [])
+
+        asyncio.run(scenario())
+
+
+    def test_quiet_enrichment_leaves_no_visible_logs(self):
+        async def scenario():
+            store = InMemoryStorage()
+            await _link_players(store, 1, 2)
+            for mid in ("LA2_OK", "LA2_GONE"):
+                await store.save_match(MatchRecord.from_dict({
+                    "match_id": mid, "puuid": "puuid-1", "participant_id": 1, "discord_id": 1,
+                    "game_name": "Jugador1", "game_creation": "2026-08-22T01:00:00+00:00",
+                    "game_duration_seconds": 1800, "queue_id": 420, "game_mode": "CLASSIC",
+                    "champion": "Champ1", "position": "TOP", "win": True, "game_ended_in_surrender": False,
+                    "kills": 5, "deaths": 5, "assists": 5, "damage_to_champions": 20000,
+                    "vision_score": 25, "cs": 190,
+                }))
+
+            class _Riot(_MatchRiot):
+                async def get_match(self, match_id: str) -> dict:
+                    if match_id == "LA2_GONE":
+                        raise NotFoundError(404, "no existe más")
+                    return await super().get_match(match_id)
+
+            riot = _Riot({"LA2_OK": match_json("LA2_OK")}, {})
+            service = _service(riot, store)
+            with self.assertNoLogs("bogabot", "INFO"):
+                result = await service.enrich_stored_matches(quiet=True)
+            self.assertEqual(result, (1, 0, 1))
 
         asyncio.run(scenario())
 

@@ -35,6 +35,7 @@ class TrollConfig:
     # Índice troll (ranking): promedio suavizado de puntos por partida.
     index_prior_games: float = 2.0  # partidas "fantasma" con el promedio del grupo
     index_max_game_points: float = 30.0  # tope de puntos de UNA partida en el índice
+    weak_points_cap: float = 4.0  # máximo que suman entre todos los cargos menores
 
     @classmethod
     def default(cls) -> "TrollConfig":
@@ -64,8 +65,8 @@ def _build(raw: dict) -> TrollConfig:
     levels = raw.get("levels") or {}
     if not isinstance(levels, dict):
         raise TrollConfigError("'levels' debe ser un mapa con 'troll' y 'papelon'.")
-    troll_level = int(_number(levels.get("troll", 6), "levels.troll"))
-    papelon_level = int(_number(levels.get("papelon", 18), "levels.papelon"))
+    troll_level = int(_number(levels.get("troll", 8), "levels.troll"))
+    papelon_level = int(_number(levels.get("papelon", 15), "levels.papelon"))
     if troll_level < 1:
         raise TrollConfigError("levels.troll debe ser >= 1.")
     if papelon_level <= troll_level:
@@ -74,6 +75,9 @@ def _build(raw: dict) -> TrollConfig:
     ranked_multiplier = _number(raw.get("ranked_multiplier", 1.25), "ranked_multiplier")
     win_multiplier = _number(raw.get("win_multiplier", 0.5), "win_multiplier")
     max_age = _number(raw.get("alert_max_age_hours", 36), "alert_max_age_hours")
+    weak_cap = _number(raw.get("weak_points_cap", 4), "weak_points_cap")
+    if weak_cap < 0:
+        raise TrollConfigError("weak_points_cap no puede ser negativo.")
     if ranked_multiplier < 0 or win_multiplier < 0 or max_age <= 0:
         raise TrollConfigError("Los multiplicadores no pueden ser negativos y alert_max_age_hours debe ser > 0.")
 
@@ -123,4 +127,5 @@ def _build(raw: dict) -> TrollConfig:
         rules=rules,
         index_prior_games=prior_games,
         index_max_game_points=max_game_points,
+        weak_points_cap=weak_cap,
     )

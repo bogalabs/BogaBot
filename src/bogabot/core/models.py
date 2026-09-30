@@ -426,6 +426,7 @@ class TrollVerdict:
     level: TrollLevel
     ranked_bonus: bool = False
     carried: bool = False  # ganó igual: el equipo lo llevó de mochila
+    capped_points: int = 0  # puntos de cargos menores que no sumaron (tope)
 
     @property
     def is_clean(self) -> bool:

@@ -83,39 +83,40 @@ class _Fixture:
 
 
 _RECENT = datetime.now(timezone.utc) - timedelta(hours=1)
-_FEEDER = dict(kills=1, deaths=12, assists=2, game_creation=_RECENT)  # alerta troll
+_FEEDER = dict(kills=1, deaths=14, assists=2, deaths_before_10=4, game_creation=_RECENT)  # trolleada
 _PAPELON = dict(kills=0, deaths=18, assists=1, items_sold=7, time_dead_seconds=800, deaths_before_10=4,
                 deaths_to_lane_opponent=6, damage_to_champions=6000, game_creation=_RECENT)
 
 
 class TestTrollAnnouncements(unittest.TestCase):
-    def test_troll_goes_to_general_as_one_line_and_detail_to_troll_channel(self):
+    def test_trolleada_stays_in_troll_channel(self):
         f = _Fixture()
         f.ingest(record(discord_id=7, **_FEEDER))
-        [(line, no_embed)] = f.channels[GENERAL].sent
+        self.assertEqual(f.channels[GENERAL].sent, [])  # solo el papelón va a #general
+        [(line, embed)] = f.channels[TROLL].sent  # un solo mensaje: anécdota + detalle
         self.assertIn("<@7>", line)
-        self.assertIn("murió 12 veces", line)
-        self.assertNotIn("\n", line)  # una sola línea, corta
-        self.assertIsNone(no_embed)
-        [(no_content, embed)] = f.channels[TROLL].sent
-        self.assertIsNone(no_content)  # el detalle no vuelve a etiquetar
+        self.assertIn("murió 14 veces", line)
+        self.assertNotIn("\n", line)
         self.assertIn("Trolleada", embed.title)
 
-    def test_historic_trolleada_is_flagged_as_such(self):
+    def test_papelon_goes_to_general_and_detail_to_troll_channel(self):
         f = _Fixture()
         f.ingest(record(discord_id=7, **_PAPELON))
-        [(line, _)] = f.channels[GENERAL].sent
+        [(line, no_embed)] = f.channels[GENERAL].sent
         self.assertTrue(line.startswith("💀"))
-        [(_, embed)] = f.channels[TROLL].sent
+        self.assertIn("<@7>", line)
+        self.assertIsNone(no_embed)
+        [(no_content, embed)] = f.channels[TROLL].sent
+        self.assertIsNone(no_content)  # no etiqueta dos veces
         self.assertIn("histórica", embed.title)
 
-    def test_line_falls_back_to_troll_channel_if_general_fails(self):
+    def test_papelon_line_falls_back_to_troll_channel_if_general_fails(self):
         f = _Fixture(general_fails=True)
         with self.assertLogs("bogabot.modules.lol.scheduler", "ERROR"):
             f.ingest(record(discord_id=7, **_PAPELON))
-        sent = f.channels[TROLL].sent
-        self.assertEqual(len(sent), 2)  # la línea + el detalle
-        self.assertIn("<@7>", sent[0][0])
+        [(line, embed)] = f.channels[TROLL].sent
+        self.assertIn("<@7>", line)
+        self.assertIsNotNone(embed)
 
     def test_old_and_clean_games_are_not_announced(self):
         f = _Fixture()
@@ -139,7 +140,6 @@ class TestTrollAnnouncements(unittest.TestCase):
         f.channels[NOTIFY].fail = True
         with self.assertLogs("bogabot.modules.lol.scheduler", "ERROR"):
             f.ingest(record(discord_id=7, **_FEEDER))
-        self.assertEqual(len(f.channels[GENERAL].sent), 1)
         self.assertEqual(len(f.channels[TROLL].sent), 1)
 
     def test_monday_recap_crowns_the_troll_of_the_week(self):
