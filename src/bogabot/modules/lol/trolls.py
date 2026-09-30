@@ -307,6 +307,8 @@ class TrollService:
         )
         embed.add_field(name="Cargos", value=self._flags_text(verdict, limit=5, titles=False), inline=False)
         notes = []
+        if verdict.capped_points:
+            notes.append(f"cargos menores con tope ({self.config.weak_points_cap:g} pts)")
         if verdict.ranked_bonus:
             notes.append(f"ranked ×{self.config.ranked_multiplier:g}")
         if verdict.carried:
@@ -369,13 +371,16 @@ class TrollService:
         header = (
             "Cada partida suma los puntos de sus cargos (ranked "
             f"×{c.ranked_multiplier:g}, si igual ganaron ×{c.win_multiplier:g}).\n"
-            f"• **{c.troll_level}+ pts** → 🤡 trolleada: una línea en {general} + detalle en el canal de trolls\n"
-            f"• **{c.papelon_level}+ pts** → 💀 trolleada histórica\n"
+            f"• Los cargos menores (🔸, mal rendimiento) suman como mucho **{c.weak_points_cap:g} pts**: "
+            "una partida floja no es trolleada.\n"
+            f"• **{c.troll_level}+ pts** → 🤡 trolleada (canal de trolls)\n"
+            f"• **{c.papelon_level}+ pts** → 💀 papelón: además, una línea en {general}\n"
             "• `/trolls` ordena por **índice** (puntos por partida): jugar más no suma.\n\n"
         )
         lines = [
-            f"{spec.emoji} **{spec.title}** (+{int(cfg.params['points'])}) — {spec.description}"
-            for spec, cfg in self._detector.rules_overview()
+            f"{spec.emoji} **{spec.title}**{' 🔸' if spec.weak else ''} (+{int(cfg.params['points'])}) — "
+            f"{spec.description}"
+            for spec, cfg in sorted(self._detector.rules_overview(), key=lambda sc: sc[0].weak)
         ]
         embed = discord.Embed(title="📜 Reglamento troll", color=discord.Color.orange())
         embed.description = (header + "\n".join(lines))[:4096]

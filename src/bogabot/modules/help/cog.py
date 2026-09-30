@@ -51,7 +51,7 @@ class HelpCog(commands.Cog):
                     "`/trolls [Semana|Semana pasada|Mes|Histórico]` — ranking de puntos troll.\n"
                     "`/troll-analizar [usuario] [partida]` — los cargos de una partida y por qué.\n"
                     "`/trolls-reglas` 🔒 — qué se detecta y cuántos puntos suma cada cosa.\n"
-                    "*(Cada trolleada se cuenta en una línea en general; el ranking es por índice, jugar más no suma.)*"
+                    "*(Las trolleadas se avisan en el canal de trolls; solo los papelones van a general. El ranking es por índice: jugar más no suma.)*"
                 ),
                 inline=False,
             )

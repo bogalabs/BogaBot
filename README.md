@@ -264,7 +264,7 @@ aparte `sshserver` (fuera de este repo).
 - `/trolls-reglas` — qué detecta el bot y cuántos puntos suma cada cosa.
 - `/trolls-reiniciar` — (solo rol dev, en `ADMIN_CHANNEL_ID`) el ranking troll
   arranca de cero desde ahora (las partidas viejas quedan guardadas).
-- `/trolls-recalcular` — (solo rol dev, en `ADMIN_CHANNEL_ID`) vuelve a
+- `/trolls-recalcular` — (solo rol dev, en `ADMIN_CHANNEL_ID`; igual corre solo al arrancar) vuelve a
   pedir a Riot las partidas guardadas antes del detector nuevo para
   completarles las stats y el timeline. Corre en segundo plano.
 - `/help` y `/ayuda` — listan los comandos disponibles según el rol de quien
@@ -333,11 +333,17 @@ Criterios para no castigar juego normal:
 - Reglas que miden lo mismo no se suman (feeder reemplaza a KDA trágico y a
   tiempo muerto; ciego reemplaza a sin control wards).
 
+**Una partida floja no es una trolleada.** Los cargos "menores" (mal
+rendimiento: poca KP, poco daño, línea perdida, visión, farm, primera
+sangre, FF...) suman entre todos como mucho `weak_points_cap` (4). Para ser
+trolleada hace falta una **señal fuerte**: feeder, AFK, 0 kills y 0
+asistencias, ancla del equipo, vender items, dejar caer la base o throw.
+
 | Puntos de la partida | Qué pasa |
 |---|---|
-| menos de `levels.troll` (6) | Nada aparte; suma al ranking troll y se ve en el troll-o-metro del aviso de partida. |
-| `levels.troll`+ | 🤡 **Una línea corta en `GENERAL_CHANNEL_ID`**, etiquetando al jugador, con la anécdota: *"¡Chica trolleada! @jugador nos tiraban la base y estaba farmeando la jungla. (Lee Sin 1/12/2)"*. El detalle (cargos y puntos) va compacto a `TROLL_CHANNEL_ID` (o el de rankings). |
-| `levels.papelon`+ (18) | 💀 Lo mismo, como **"¡Trolleada histórica!"**. |
+| menos de `levels.troll` (8) | Nada aparte; suma al ranking troll y se ve en el troll-o-metro del aviso de partida. |
+| `levels.troll`+ | 🤡 **Trolleada**: en `TROLL_CHANNEL_ID` (o el de rankings), una línea con la anécdota etiquetando al jugador + el detalle compacto. |
+| `levels.papelon`+ (15) | 💀 **Papelón**: además, **una línea corta en `GENERAL_CHANNEL_ID`**: *"¡Trolleada histórica! @jugador nos tiraban la base y estaba farmeando la jungla. Encima, murió 12 veces. (Lee Sin 1/12/2)"*. Solo esto va a #general. |
 
 Solo se avisan partidas recientes (`alert_max_age_hours`, 36 h). Todo se
 ajusta en **`config/trolls.yaml`** sin tocar código; el ranking troll se
@@ -355,8 +361,10 @@ El job diario postea cómo va la semana si hubo trolleadas y los lunes
 corona al **Troll de la semana**.
 
 Las reglas del timeline usan una consulta más a Riot por partida. Las
-partidas guardadas antes (o analizadas con una versión vieja) se completan
-con `/trolls-recalcular`.
+partidas guardadas antes (o analizadas con una versión vieja) **se
+recalculan solas y en silencio** al arrancar el bot: sin mensajes, sin logs
+visibles y sin avisos; lo único que cambia es la tabla troll.
+`/trolls-recalcular` fuerza lo mismo a mano (responde solo a quien lo pide).
 
 ## Cómo se calcula el ranking
 Cada partida se guarda como un registro por jugador, **pero solo si jugaste

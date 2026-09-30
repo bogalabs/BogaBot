@@ -150,6 +150,13 @@ _Última actualización: 2026-09-29_
       throw solo si lo agarraron solo, ahorrista solo antes del 25.
       `TIMELINE_VERSION` 3 — 2026-09-29
 
+- [x] Trolleada más especial: cargos menores (mal rendimiento) con tope de
+      4 pts, así una partida floja no es trolleada; hace falta una señal
+      fuerte. Niveles 8 (trolleada) y 15 (papelón). **Solo el papelón va a
+      #general**; las trolleadas quedan en el canal de trolls. Recálculo
+      automático y silencioso de partidas viejas al arrancar (sin mensajes
+      ni logs; solo se actualiza la tabla troll) — 2026-09-30
+
 ## 🚧 En progreso
 - [ ] _(nada activo)_
 

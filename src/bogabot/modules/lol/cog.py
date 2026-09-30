@@ -350,21 +350,21 @@ class LolCog(commands.Cog):
             await interaction.followup.send("✅ Todas las partidas guardadas ya tienen los datos completos.")
             return
         await interaction.followup.send(
-            f"⏳ Recalculando {len(pending)} partidas-jugador en segundo plano (2 consultas a Riot por "
-            f"partida, respetando el rate limit). Aviso en este canal cuando termine."
+            f"⏳ Recalculando {len(pending)} partidas-jugador en segundo plano. No postea nada: "
+            f"la tabla troll (`/trolls`) se actualiza sola a medida que avanza."
         )
-        self._recalc_task = asyncio.create_task(self._run_recalc(interaction.channel))
+        self._recalc_task = asyncio.create_task(self._run_recalc(interaction))
 
-    async def _run_recalc(self, channel: discord.abc.Messageable | None) -> None:
+    async def _run_recalc(self, interaction: discord.Interaction) -> None:
+        """Recálculo silencioso: el resultado solo lo ve quien lo pidió."""
         try:
-            updated, unchanged, failed = await self.bot.ingest.enrich_stored_matches()
-            text = (f"✅ Recálculo troll terminado: {updated} partidas completadas, "
-                    f"{unchanged} sin cambios, {failed} con error.")
-        except Exception:  # noqa: BLE001 - que se entere quien lo pidió
-            log.exception("Falló /trolls-recalcular.")
-            text = "❌ El recálculo troll falló a mitad de camino; mirá los logs."
-        if channel is not None:
-            try:
-                await channel.send(text)
-            except discord.HTTPException:
-                log.warning("No pude avisar el fin del recálculo troll: %s", text)
+            updated, unchanged, failed = await self.bot.ingest.enrich_stored_matches(quiet=True)
+            text = (f"✅ Recálculo terminado: {updated} completadas, {unchanged} sin cambios, "
+                    f"{failed} con error.")
+        except Exception:  # noqa: BLE001 - que se entere solo quien lo pidió
+            log.debug("Falló /trolls-recalcular.", exc_info=True)
+            text = "❌ El recálculo se cortó; se reintenta solo en unos minutos."
+        try:
+            await interaction.followup.send(text, ephemeral=True)
+        except discord.HTTPException:
+            pass  # el token de la interacción venció (más de 15 min): no importa
