@@ -412,6 +412,13 @@ class TestTrollService(unittest.TestCase):
         again = TrollService(self.store, _detector(), settings, state_file=str(state))  # type: ignore[arg-type]
         self.assertEqual(again.reset_at, service.reset_at)
         self.assertIn("Cuenta desde", again.build_standings_embed([], "week").footer.text)
+        # Deshacer el reinicio (recálculo de 0): vuelve a contar todo el historial.
+        asyncio.run(again.clear_reset())
+        self.assertIsNone(again.reset_at)
+        names = [s.display_name for s in asyncio.run(again.standings("all"))]
+        self.assertEqual(sorted(names), ["Nuevo", "Viejo"])
+        third = TrollService(self.store, _detector(), settings, state_file=str(state))  # type: ignore[arg-type]
+        self.assertIsNone(third.reset_at)
 
     def test_is_fresh(self):
         now = datetime.now(timezone.utc)

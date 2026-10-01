@@ -18,6 +18,7 @@ from bogabot.modules.lol.cog import LolCog
 from bogabot.modules.lol.ingest import IngestService
 from bogabot.modules.lol.ranking import RankingService
 from bogabot.modules.lol.riot_key import RiotKeyCog, RiotKeyStore
+from bogabot.modules.lol.carries import CARRY_FLAVOR
 from bogabot.modules.lol.scheduler import LolScheduler
 from bogabot.modules.lol.trolls import TrollService
 from bogabot.modules.points.cog import PointsCog
@@ -28,6 +29,7 @@ from bogabot.scoring.engine import ScoringEngine
 from bogabot.scoring.schema import load_scoring_config
 from bogabot.settings import Settings
 from bogabot.storage.discord_channel import DiscordChannelStorage
+from bogabot.carries.rules import CARRY_CATALOG
 from bogabot.trolls.detector import TrollDetector
 from bogabot.trolls.schema import load_troll_config
 
@@ -61,6 +63,8 @@ class BogaBot(commands.Bot):
         self.riot.set_api_key(self.riot_key_state.api_key)
         self.scoring = ScoringEngine(load_scoring_config(settings.scoring_config_path))
         self.troll_detector = TrollDetector(load_troll_config(settings.trolls_config_path))
+        # Carreadas: el mismo motor con otro catálogo de reglas (ver carries/).
+        self.carry_detector = TrollDetector(load_troll_config(settings.carries_config_path, CARRY_CATALOG))
         self.storage = DiscordChannelStorage(settings)
         self.points = PointsStore(settings.points_file)
 
@@ -69,6 +73,8 @@ class BogaBot(commands.Bot):
         self.ranking = RankingService(self.storage, self.scoring, settings)
         self.trolls = TrollService(self.storage, self.troll_detector, settings,
                                    state_file=settings.trolls_state_file)
+        self.carries = TrollService(self.storage, self.carry_detector, settings,
+                                    state_file=settings.carries_state_file, flavor=CARRY_FLAVOR)
 
     async def setup_hook(self) -> None:
         await self.riot.start()

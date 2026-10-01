@@ -285,27 +285,30 @@ class IngestService:
             return None
         return map_match_summary(data, puuid_to_discord)
 
-    async def pending_enrichment(self) -> list[MatchRecord]:
+    async def pending_enrichment(self, everything: bool = False) -> list[MatchRecord]:
         """Partidas guardadas sin stats extendidas o con el timeline sin
         analizar (o analizado por una versión anterior, sin las situaciones
-        nuevas)."""
+        nuevas). Con `everything=True`, todas (recálculo de 0)."""
         return sorted(
             (r for r in await self._matches.get_all_matches()
-             if not r.has_extended_stats or (r.timeline_version or 0) < TIMELINE_VERSION),
+             if everything or not r.has_extended_stats or (r.timeline_version or 0) < TIMELINE_VERSION),
             key=lambda r: r.match_id,  # las de una misma partida seguidas: aprovechan la caché
         )
 
-    async def enrich_stored_matches(self, quiet: bool = False) -> tuple[int, int, int]:
+    async def enrich_stored_matches(self, quiet: bool = False,
+                                    everything: bool = False) -> tuple[int, int, int]:
         """Completa las partidas ya guardadas a las que les faltan las stats
         extendidas o el timeline (las guardadas antes del detector de trolls
         nuevo): las vuelve a pedir a Riot y reescribe el registro. Lo usa
         `/trolls-recalcular` y el recálculo automático del scheduler; con
         `quiet=True` no deja rastro en los logs (solo a nivel DEBUG): el único
         efecto es que la tabla troll se actualiza. Nunca dispara avisos (no
-        pasa por los listeners). Devuelve (actualizadas, sin cambios, fallidas)."""
+        pasa por los listeners). Con `everything=True` reanaliza TODAS las
+        partidas guardadas, aunque ya estén al día (recálculo de 0).
+        Devuelve (actualizadas, sin cambios, fallidas)."""
         level = logging.DEBUG if quiet else logging.WARNING
         links = {l.discord_id: l for l in await self._links.get_all_links()}
-        pending = await self.pending_enrichment()
+        pending = await self.pending_enrichment(everything)
         updated = unchanged = failed = 0
         for old in pending:
             try:

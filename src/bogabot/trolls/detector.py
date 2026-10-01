@@ -1,5 +1,6 @@
-"""Motor del detector de trolls: corre las reglas del catálogo sobre un
-`MatchRecord` y arma el veredicto (cargos, puntos y nivel).
+"""Motor del detector: corre las reglas de un catálogo (trolls o carreadas,
+ver `TrollConfig.catalog`) sobre un `MatchRecord` y arma el veredicto
+(cargos, puntos y nivel).
 
 Es lógica pura: no habla con Riot ni con Discord. Como todo sale del
 `MatchRecord` guardado, cambiar un umbral en config/trolls.yaml recalcula
@@ -11,7 +12,7 @@ import logging
 
 from bogabot.core.models import MatchRecord, TrollFlag, TrollLevel, TrollVerdict
 from bogabot.riot.mapper import RANKED_QUEUE_IDS
-from bogabot.trolls.rules import RULES, Params, RuleSpec, game_profile
+from bogabot.trolls.rules import Params, RuleSpec, game_profile
 from bogabot.trolls.schema import RuleConfig, TrollConfig
 
 log = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ class TrollDetector:
         """Reglas activas con sus parámetros efectivos (para /trolls-reglas)."""
         return [
             (spec, self._config.rules[code])
-            for code, spec in RULES.items()
+            for code, spec in self._config.catalog.rules.items()
             if self._config.rules[code].enabled
         ]
 
@@ -41,10 +42,11 @@ class TrollDetector:
         return TrollLevel.NONE
 
     def evaluate(self, record: MatchRecord) -> TrollVerdict:
+        rules = self._config.catalog.rules
         profile = game_profile(record)
         flags: list[TrollFlag] = []
         if profile is not None:
-            for code, spec in RULES.items():
+            for code, spec in rules.items():
                 rule = self._config.rules[code]
                 if not rule.enabled or profile not in spec.profiles:
                     continue
@@ -58,27 +60,28 @@ class TrollDetector:
                 if hit is not None:
                     points, detail = hit
                     flags.append(TrollFlag(code, spec.emoji, spec.title, detail, points))
-        superseded = {code for f in flags for code in RULES[f.code].supersedes}
+        superseded = {code for f in flags for code in rules[f.code].supersedes}
         flags = [f for f in flags if f.code not in superseded]
         # Los cargos de equipo (FF, barrida) solo agravan un cargo propio.
-        if all(RULES[f.code].aggravating for f in flags):
+        if all(rules[f.code].aggravating for f in flags):
             flags = []
         flags.sort(key=lambda f: f.points, reverse=True)
 
         # Los cargos menores (mal rendimiento) suman con tope: para ser
         # trolleada hace falta una señal fuerte (feedear, AFK, vender items,
         # dejar caer la base, throw...), no una partida floja.
-        strong = sum(f.points for f in flags if not RULES[f.code].weak)
-        weak = sum(f.points for f in flags if RULES[f.code].weak)
+        strong = sum(f.points for f in flags if not rules[f.code].weak)
+        weak = sum(f.points for f in flags if rules[f.code].weak)
         capped = max(0, weak - int(self._config.weak_points_cap))
         base = strong + weak - capped
         points = float(base)
         ranked = base > 0 and record.queue_id in RANKED_QUEUE_IDS
         if ranked:
             points *= self._config.ranked_multiplier
-        carried = base > 0 and record.win
-        if carried:
-            points *= self._config.win_multiplier
+        if base > 0:
+            points *= self._config.win_multiplier if record.win else self._config.loss_multiplier
+        # Trolls: "ganó igual, lo llevaron de mochila" (cuando ganar achica los puntos).
+        carried = base > 0 and record.win and self._config.win_multiplier < 1
         total = int(points + 0.5)  # redondeo "de escuela" (round() redondea al par)
 
         return TrollVerdict(

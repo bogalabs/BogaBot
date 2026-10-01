@@ -157,6 +157,19 @@ _Última actualización: 2026-09-29_
       automático y silencioso de partidas viejas al arrancar (sin mensajes
       ni logs; solo se actualiza la tabla troll) — 2026-09-30
 
+- [x] `/trolls-recalcular desde_cero:True`: reanaliza todas las partidas
+      (aunque ya estuvieran al día) y la tabla troll vuelve a contar todo el
+      historial con los criterios actuales — 2026-10-01
+
+- [x] Carreadas: el mismo sistema que trolls, premiando (`carries/`,
+      `config/carries.yaml`). Impacto relativo al equipo (daño, kills,
+      KP, remontada, robos, pentakill, muralla, habilitador...), jugadas
+      menores con tope, perder ×0.5. `/carries`, `/carry-analizar`,
+      `/carries-reglas`, `/carries-reiniciar`, Carry de la semana y
+      Carry-o-metro. El motor de trolls quedó genérico (`Catalog` +
+      `Flavor`). `TIMELINE_VERSION` 4 (desventaja de oro para remontadas):
+      el recálculo silencioso completa las partidas viejas — 2026-10-01
+
 ## 🚧 En progreso
 - [ ] _(nada activo)_
 

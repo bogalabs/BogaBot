@@ -61,15 +61,18 @@ src/bogabot/
 ├── trolls/                 # detector de trolls (lógica pura, sobre MatchRecord)
 │   ├── rules.py            # catálogo de reglas (RULES) con sus params por defecto
 │   ├── schema.py           # carga/valida config/trolls.yaml
-│   └── detector.py         # TrollDetector.evaluate(record) -> TrollVerdict
+│   └── detector.py         # TrollDetector.evaluate(record) -> TrollVerdict (sirve para cualquier catálogo)
+├── carries/rules.py        # catálogo de carreadas (CARRY_CATALOG): mismo motor, premiando
 └── modules/lol/            # feature LoL como cog autocontenido
     ├── cog.py              # slash commands /link /unlink /link-admin /ingest-now /ranking /trolls /troll-analizar ...
     ├── ingest.py           # ingesta de partidas + timeline (devuelve list[MatchRecord] nuevos)
     ├── ranking.py          # agrega stats + arma embeds
-    ├── trolls.py           # TrollService: ranking troll por período + embeds de alertas
+    ├── trolls.py           # TrollService + Flavor: ranking por período + mensajes (troll o carry)
+    ├── carries.py          # CARRY_FLAVOR (textos de las carreadas)
     └── scheduler.py        # daily_job + notify_job + listener de ingesta (avisos y alertas troll)
 config/scoring.yaml         # fórmula del ranking, editable sin tocar código
 config/trolls.yaml          # umbrales/puntos del detector de trolls, editable sin tocar código
+config/carries.yaml         # umbrales/puntos del detector de carreadas
 tests/                      # tests de lógica pura (sin red ni tokens)
 ```
 
@@ -143,8 +146,9 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   (`core/models.py`, no se persiste) con un `MatchParticipant` por jugador,
   marcando `discord_id` cuando el puuid está vinculado. `scheduler.py::_match_notification_embed`
   arma el embed: resultado general (o "equipos contrarios" si el grupo quedó
-  dividido), un field por equipo y un field "línea vs línea" con el
-  matchup por posición. Se etiqueta (`<@id>`) a los vinculados; al resto se
+  dividido), un field por equipo (con KDA y farm) y un field "línea vs
+  línea" con el matchup por posición (solo quién contra quién: el puntaje
+  no se repite). Se etiqueta (`<@id>`) a los vinculados; al resto se
   los muestra por su Riot ID.
 - **Farm (CS):** `riot/mapper.py::_farm` suma `totalMinionsKilled` +
   `neutralMinionsKilled`. Se guarda en `MatchRecord.cs` (ranking/scoring) y
@@ -223,7 +227,8 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   si #general falla, la línea cae al canal de trolls. `LolScheduler.backfill_job`
   recalcula al arrancar, en silencio (`enrich_stored_matches(quiet=True)`:
   logs solo DEBUG, nada a Discord, sin avisos), las partidas con
-  `timeline_version` vieja; se apaga solo. Las situaciones del timeline (base perdida
+  `timeline_version` vieja; se apaga solo. `/trolls-recalcular desde_cero:True`
+  reanaliza todas (`everything=True`) y deshace el reinicio (`clear_reset`). Las situaciones del timeline (base perdida
   estando lejos, throw, AFK, morir con oro) las calcula `riot/mapper.py`;
   si se agrega una, subir `TIMELINE_VERSION` para que `/trolls-recalcular`
   reanalice las partidas viejas. Solo se avisan partidas que
@@ -234,6 +239,15 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   corría en el job diario (para entonces el poll ya había ingerido todo y
   nunca avisaba) y cuyo criterio (KDA < 0.5 **y** FF antes del 20) casi
   nunca se cumplía.
+- **Carreadas:** el mismo motor que trolls con otro `Catalog`
+  (`carries/rules.py::CARRY_CATALOG`: niveles `carry`/`legendaria`, perder
+  ×0.5) y otro `Flavor` (`modules/lol/carries.py`); `bot.carries` es un
+  `TrollService` más. Criterio: impacto relativo al equipo (% del daño, % de
+  las kills, KP), medido contra la duración; las jugadas menores (`weak`,
+  incluido el viejo "KDA alto") tienen tope. Canal `CARRY_CHANNEL_ID`
+  (default el de trolls); solo la legendaria va a #general. Ojo: el
+  `PlayerStats.carry_games` del ranking general (gana + KDA ≥ 5) es otro
+  criterio, previo, y no se tocó.
 - **Logging a Discord:** `DiscordLogHandler` (en `core/`) se engancha al
   logger `"bogabot"` (no a `discord.*`, para no capturar el ruido de la
   librería) cuando hay `LOG_CHANNEL_ID`. Solo encola texto formateado en

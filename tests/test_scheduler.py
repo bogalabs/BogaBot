@@ -16,13 +16,15 @@ import discord  # noqa: E402
 from fixtures import record  # noqa: E402
 
 from bogabot.core.models import MatchParticipant, MatchSummary  # noqa: E402
+from bogabot.carries.rules import CARRY_CATALOG  # noqa: E402
+from bogabot.modules.lol.carries import CARRY_FLAVOR  # noqa: E402
 from bogabot.modules.lol.scheduler import LolScheduler  # noqa: E402
 from bogabot.modules.lol.trolls import TrollService  # noqa: E402
 from bogabot.storage.memory import InMemoryStorage  # noqa: E402
 from bogabot.trolls.detector import TrollDetector  # noqa: E402
 from bogabot.trolls.schema import TrollConfig  # noqa: E402
 
-TROLL, RANKING, GENERAL, NOTIFY = 10, 20, 30, 40
+TROLL, RANKING, GENERAL, NOTIFY, CARRY = 10, 20, 30, 40, 50
 
 
 class _Channel:
@@ -52,7 +54,7 @@ class _Fixture:
         self.store = InMemoryStorage()
         settings = SimpleNamespace(
             timezone="America/Argentina/Buenos_Aires", troll_channel_id=TROLL, ranking_channel_id=RANKING,
-            general_channel_id=GENERAL, match_notify_channel_id=NOTIFY,
+            general_channel_id=GENERAL, match_notify_channel_id=NOTIFY, carry_channel_id=CARRY,
         )
         self.summaries: list[str] = []
 
@@ -63,10 +65,13 @@ class _Fixture:
         bot = SimpleNamespace(
             settings=settings,
             trolls=TrollService(self.store, TrollDetector(TrollConfig.default()), settings),  # type: ignore[arg-type]
+            carries=TrollService(self.store, TrollDetector(TrollConfig.default(CARRY_CATALOG)),  # type: ignore[arg-type]
+                                 settings, flavor=CARRY_FLAVOR),
             ingest=SimpleNamespace(build_match_summary=build_match_summary),
         )
         self.channels = {TROLL: _Channel("trolls"), RANKING: _Channel("ranking"),
-                         GENERAL: _Channel("general", fail=general_fails), NOTIFY: _Channel("partidas")}
+                         GENERAL: _Channel("general", fail=general_fails), NOTIFY: _Channel("partidas"),
+                         CARRY: _Channel("carreadas")}
         self.scheduler = LolScheduler(bot)  # type: ignore[arg-type]
 
         async def text_channel(channel_id, env_name):
@@ -141,6 +146,48 @@ class TestTrollAnnouncements(unittest.TestCase):
         with self.assertLogs("bogabot.modules.lol.scheduler", "ERROR"):
             f.ingest(record(discord_id=7, **_FEEDER))
         self.assertEqual(len(f.channels[TROLL].sent), 1)
+
+    def test_carreada_goes_to_carry_channel(self):
+        f = _Fixture()
+        carry = dict(win=True, kills=13, deaths=2, assists=7, team_kills=30, damage_to_champions=38000,
+                     game_creation=_RECENT)
+        f.ingest(record(discord_id=9, **carry))
+        self.assertEqual(f.channels[GENERAL].sent, [])
+        self.assertEqual(f.channels[TROLL].sent, [])
+        [(line, embed)] = f.channels[CARRY].sent
+        self.assertTrue(line.startswith("⭐"))
+        self.assertIn("<@9>", line)
+        self.assertIn("del daño del equipo", line)
+        self.assertIn("Carreada", embed.title)
+        notify = f.channels[NOTIFY].sent[0][1]
+        self.assertIn("⭐ Carry-o-metro", [field.name for field in notify.fields])
+
+    def test_legendary_carry_also_goes_to_general(self):
+        f = _Fixture()
+        legend = dict(win=True, kills=16, deaths=3, assists=8, team_kills=35, damage_to_champions=41000,
+                      penta_kills=1, largest_killing_spree=9, game_creation=_RECENT)
+        f.ingest(record(discord_id=9, **legend))
+        [(line, _)] = f.channels[GENERAL].sent
+        self.assertTrue(line.startswith("🌟"))
+        self.assertIn("pentakill", line)
+        [(no_content, embed)] = f.channels[CARRY].sent
+        self.assertIsNone(no_content)
+
+    def test_match_notification_shows_each_score_once(self):
+        parts = [
+            MatchParticipant(discord_id=1 if pid == 1 else None, display_name=f"J{pid}", champion=f"C{pid}",
+                             team_id=100 if pid <= 5 else 200, position=("TOP", "JUNGLE", "MIDDLE", "BOTTOM",
+                                                                          "UTILITY")[(pid - 1) % 5],
+                             win=pid > 5, kills=7, deaths=3, assists=pid, cs=150)
+            for pid in range(1, 11)
+        ]
+        summary = MatchSummary(match_id="LA2_9", queue_id=420, game_duration_seconds=1800, participants=parts)
+        embed = LolScheduler._match_notification_embed(summary)
+        text = "\n".join(f.value for f in embed.fields)
+        self.assertEqual(text.count("(7/3/1)"), 1)  # el KDA de cada jugador aparece una sola vez
+        lanes = next(f for f in embed.fields if "Línea vs línea" in f.name)
+        self.assertIn("**TOP:** <@1> (C1)  🆚  J6 (C6)", lanes.value)
+        self.assertNotIn("/", lanes.value)
 
     def test_monday_recap_crowns_the_troll_of_the_week(self):
         f = _Fixture()

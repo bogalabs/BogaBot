@@ -1,6 +1,7 @@
 """Cog con los slash commands del módulo LoL:
 /link, /unlink, /link-admin, /unlink-admin, /ingest-now, /ranking,
-/trolls, /trolls-reglas, /troll-analizar, /trolls-recalcular, /trolls-reiniciar.
+/trolls, /trolls-reglas, /troll-analizar, /trolls-recalcular, /trolls-reiniciar,
+/carries, /carries-reglas, /carry-analizar, /carries-reiniciar.
 
 El cog es "delgado": valida input, llama a los servicios (riot, storage,
 ranking, trolls) y responde. Toda la lógica de negocio vive en los
@@ -274,12 +275,16 @@ class LolCog(commands.Cog):
         periodo: app_commands.Choice[str] | None = None,
     ) -> None:
         await interaction.response.defer()
+        await self._send_standings(interaction, self.bot.trolls, periodo)
+
+    async def _send_standings(self, interaction: discord.Interaction, service,
+                              periodo: app_commands.Choice[str] | None) -> None:
         if not self._storage_ready():
             await interaction.followup.send("El bot todavía se está inicializando, probá en unos segundos.")
             return
         period = periodo.value if periodo else "week"
-        rows = await self.bot.trolls.standings(period)
-        await interaction.followup.send(embed=self.bot.trolls.build_standings_embed(rows, period))
+        rows = await service.standings(period)
+        await interaction.followup.send(embed=service.build_standings_embed(rows, period))
 
     @app_commands.command(name="trolls-reglas", description="Cómo se calculan los puntos troll.")
     async def trolls_reglas(self, interaction: discord.Interaction) -> None:
@@ -300,11 +305,15 @@ class LolCog(commands.Cog):
         partida: str | None = None,
     ) -> None:
         await interaction.response.defer()
+        await self._send_analysis(interaction, self.bot.trolls, usuario, partida)
+
+    async def _send_analysis(self, interaction: discord.Interaction, service,
+                             usuario: discord.Member | None, partida: str | None) -> None:
         if not self._storage_ready():
             await interaction.followup.send("El bot todavía se está inicializando, probá en unos segundos.")
             return
         target = usuario or interaction.user
-        record = await self.bot.trolls.find_record(target.id, partida)
+        record = await service.find_record(target.id, partida)
         if record is None:
             what = f"la partida `{partida}`" if partida else "partidas guardadas"
             await interaction.followup.send(
@@ -313,8 +322,8 @@ class LolCog(commands.Cog):
                 allowed_mentions=discord.AllowedMentions.none(),
             )
             return
-        verdict = self.bot.trolls.evaluate(record)
-        await interaction.followup.send(embed=self.bot.trolls.build_analysis_embed(verdict))
+        verdict = service.evaluate(record)
+        await interaction.followup.send(embed=service.build_analysis_embed(verdict))
 
     @app_commands.command(
         name="trolls-reiniciar",
@@ -322,20 +331,72 @@ class LolCog(commands.Cog):
     )
     async def trolls_reiniciar(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
+        await self._reset(interaction, self.bot.trolls)
+
+    async def _reset(self, interaction: discord.Interaction, service) -> None:
         if not await self._check_admin(interaction):
             return
-        when = await self.bot.trolls.reset_ranking()
-        log.warning("Ranking troll reiniciado por %s.", interaction.user)
+        when = await service.reset_ranking()
+        name = service.flavor.index_noun
+        log.info("Ranking %s reiniciado por %s.", name, interaction.user)
         await interaction.followup.send(
-            f"🔄 Ranking troll reiniciado ({discord.utils.format_dt(when, 'f')}). Desde ahora cuenta de "
+            f"🔄 Ranking {name} reiniciado ({discord.utils.format_dt(when, 'f')}). Desde ahora cuenta de "
             f"cero, por índice (puntos por partida). Las partidas viejas quedan guardadas pero no suman."
         )
 
+    # --- Carreadas (mismo sistema que trolls, premiando) ---------------------
+    @app_commands.command(name="carries", description="Ranking de carreadas del grupo (puntos por carrear).")
+    @app_commands.describe(periodo="Ventana de tiempo del ranking de carreadas")
+    @app_commands.choices(
+        periodo=[
+            app_commands.Choice(name="Semana", value="week"),
+            app_commands.Choice(name="Semana pasada", value="prev_week"),
+            app_commands.Choice(name="Mes", value="month"),
+            app_commands.Choice(name="Histórico", value="all"),
+        ]
+    )
+    async def carries(
+        self,
+        interaction: discord.Interaction,
+        periodo: app_commands.Choice[str] | None = None,
+    ) -> None:
+        await interaction.response.defer()
+        await self._send_standings(interaction, self.bot.carries, periodo)
+
+    @app_commands.command(name="carries-reglas", description="Cómo se calculan los puntos de carreadas.")
+    async def carries_reglas(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(embed=self.bot.carries.build_rules_embed(), ephemeral=True)
+
+    @app_commands.command(name="carry-analizar", description="Analizá una partida: qué jugadas de carry tuvo y por qué.")
+    @app_commands.describe(
+        usuario="De quién es la partida (vacío = vos)",
+        partida="ID de la partida, ej. LA2_1234567890 (vacío = la última guardada)",
+    )
+    async def carry_analizar(
+        self,
+        interaction: discord.Interaction,
+        usuario: discord.Member | None = None,
+        partida: str | None = None,
+    ) -> None:
+        await interaction.response.defer()
+        await self._send_analysis(interaction, self.bot.carries, usuario, partida)
+
+    @app_commands.command(
+        name="carries-reiniciar",
+        description="Reinicia el ranking de carreadas: desde ahora cuenta de cero (solo rol dev).",
+    )
+    async def carries_reiniciar(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        await self._reset(interaction, self.bot.carries)
+
     @app_commands.command(
         name="trolls-recalcular",
-        description="Completa las partidas viejas con los datos del detector de trolls (solo rol dev).",
+        description="Recalcula las tablas troll y carry con los criterios actuales (solo rol dev).",
     )
-    async def trolls_recalcular(self, interaction: discord.Interaction) -> None:
+    @app_commands.describe(
+        desde_cero="Reanaliza TODAS las partidas guardadas y la tabla vuelve a contar todo el historial.",
+    )
+    async def trolls_recalcular(self, interaction: discord.Interaction, desde_cero: bool = False) -> None:
         await interaction.response.defer(ephemeral=True)
         if not await self._check_admin(interaction):
             return
@@ -345,20 +406,29 @@ class LolCog(commands.Cog):
         if self._recalc_task is not None and not self._recalc_task.done():
             await interaction.followup.send("Ya hay un recálculo corriendo; te aviso acá cuando termine.")
             return
-        pending = await self.bot.ingest.pending_enrichment()
+        if desde_cero:
+            # Las tablas (troll y carry) vuelven a contar todo el historial
+            # (deshace los /...-reiniciar) y se reanalizan todas las partidas.
+            await self.bot.trolls.clear_reset()
+            await self.bot.carries.clear_reset()
+        pending = await self.bot.ingest.pending_enrichment(everything=desde_cero)
         if not pending:
-            await interaction.followup.send("✅ Todas las partidas guardadas ya tienen los datos completos.")
+            await interaction.followup.send(
+                "✅ Todas las partidas ya están analizadas con los criterios actuales y la tabla ya los usa. "
+                "Para reanalizar todo igual, usá `desde_cero: True`."
+            )
             return
         await interaction.followup.send(
-            f"⏳ Recalculando {len(pending)} partidas-jugador en segundo plano. No postea nada: "
-            f"la tabla troll (`/trolls`) se actualiza sola a medida que avanza."
+            f"⏳ Recalculando {'de 0 ' if desde_cero else ''}{len(pending)} partidas-jugador en segundo plano. "
+            f"No postea nada: la tabla troll (`/trolls`) se actualiza sola a medida que avanza."
         )
-        self._recalc_task = asyncio.create_task(self._run_recalc(interaction))
+        self._recalc_task = asyncio.create_task(self._run_recalc(interaction, desde_cero))
 
-    async def _run_recalc(self, interaction: discord.Interaction) -> None:
+    async def _run_recalc(self, interaction: discord.Interaction, everything: bool = False) -> None:
         """Recálculo silencioso: el resultado solo lo ve quien lo pidió."""
         try:
-            updated, unchanged, failed = await self.bot.ingest.enrich_stored_matches(quiet=True)
+            updated, unchanged, failed = await self.bot.ingest.enrich_stored_matches(
+                quiet=True, everything=everything)
             text = (f"✅ Recálculo terminado: {updated} completadas, {unchanged} sin cambios, "
                     f"{failed} con error.")
         except Exception:  # noqa: BLE001 - que se entere solo quien lo pidió
