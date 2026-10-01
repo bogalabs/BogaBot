@@ -54,6 +54,12 @@ class TrollConfig:
     index_max_game_points: float = 30.0  # tope de puntos de UNA partida en el índice
     weak_points_cap: float = 4.0  # máximo que suman entre todos los cargos menores
     loss_multiplier: float = 1.0  # carreadas: en una derrota pesa menos
+    # Índice: una partida que no llega al nivel de aviso (floja, sin trollear)
+    # pesa esto; y los puntos de la tabla opuesta (carreadas para trolls,
+    # trolleadas para carreadas) restan esta fracción. Así quien juega mucho
+    # no acumula por partidas flojas, y las buenas partidas bajan el índice.
+    index_minor_game_weight: float = 0.3
+    index_redemption: float = 0.5
     catalog: Catalog = TROLL_CATALOG
 
     @classmethod
@@ -108,13 +114,17 @@ def _build(raw: dict, catalog: Catalog = TROLL_CATALOG) -> TrollConfig:
     index = raw.get("index") or {}
     if not isinstance(index, dict):
         raise TrollConfigError("'index' debe ser un mapa con 'prior_games' y 'max_game_points'.")
-    unknown_index = sorted(set(index) - {"prior_games", "max_game_points"})
+    unknown_index = sorted(set(index) - {"prior_games", "max_game_points", "minor_game_weight", "redemption"})
     if unknown_index:
         raise TrollConfigError(f"Parámetros desconocidos en 'index': {unknown_index}.")
     prior_games = _number(index.get("prior_games", 2), "index.prior_games")
     max_game_points = _number(index.get("max_game_points", 30), "index.max_game_points")
     if prior_games < 0 or max_game_points <= 0:
         raise TrollConfigError("index.prior_games no puede ser negativo e index.max_game_points debe ser > 0.")
+    minor_weight = _number(index.get("minor_game_weight", 0.3), "index.minor_game_weight")
+    redemption = _number(index.get("redemption", 0.5), "index.redemption")
+    if not (0 <= minor_weight <= 1 and 0 <= redemption <= 1):
+        raise TrollConfigError("index.minor_game_weight e index.redemption van entre 0 y 1.")
 
     raw_rules = raw.get("rules") or {}
     if not isinstance(raw_rules, dict):
@@ -155,4 +165,6 @@ def _build(raw: dict, catalog: Catalog = TROLL_CATALOG) -> TrollConfig:
         weak_points_cap=weak_cap,
         loss_multiplier=loss_multiplier,
         catalog=catalog,
+        index_minor_game_weight=minor_weight,
+        index_redemption=redemption,
     )

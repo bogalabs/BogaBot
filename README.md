@@ -363,7 +363,10 @@ partida), no por el total, así que jugar más no suma: el que la trollea
 fuerte en 2 partidas queda arriba del que jugó 18 y trolleó 2. Para que 1
 partida suelta no decida por azar, el índice se suaviza hacia el promedio
 del grupo (`index.prior_games`) y una sola partida cuenta como mucho
-`index.max_game_points`. Muestra una categoría (😇 Santo → 💀 Leyenda
+`index.max_game_points`. Las partidas que no llegan a trolleada (flojas)
+pesan solo `index.minor_game_weight` (0.3) y las buenas partidas **restan**:
+los puntos de carreada de cada partida bajan el índice troll en
+`index.redemption` (0.5), y al revés en el ranking de carreadas. Muestra una categoría (😇 Santo → 💀 Leyenda
 troll) y la tendencia contra el período anterior. `/trolls-reiniciar`
 (dev) lo pone en cero desde ese momento (se guarda en `TROLLS_STATE_FILE`).
 El job diario postea cómo va la semana si hubo trolleadas y los lunes

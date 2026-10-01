@@ -468,7 +468,7 @@ class TrollStanding:
     # mucho no suma por sí solo, el que la trollea fuerte en 2 partidas queda
     # arriba del que jugó 18 y trolleó 2.
     index: float = 0.0
-    index_points: float = 0.0  # suma de puntos con el tope por partida aplicado
+    index_points: float = 0.0  # suma de lo que aporta cada partida al índice (ver game_index_points)
     previous_index: float | None = None  # índice del período anterior (tendencia)
 
     @property

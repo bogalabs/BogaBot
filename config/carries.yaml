@@ -37,6 +37,8 @@ alert_max_age_hours: 36  # partidas más viejas no se avisan (igual suman a la t
 index:
   prior_games: 2         # suavizado: 1 partida suelta no te corona
   max_game_points: 30    # tope de una partida dentro del índice
+  minor_game_weight: 0.3 # una partida que no llega a carreada pesa esto
+  redemption: 0.5        # las trolleadas restan esta proporción del índice de carry
 
 rules:
   # 🖐️ Hizo una pentakill (+3 por cada otra).

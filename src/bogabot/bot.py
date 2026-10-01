@@ -75,6 +75,9 @@ class BogaBot(commands.Bot):
                                    state_file=settings.trolls_state_file)
         self.carries = TrollService(self.storage, self.carry_detector, settings,
                                     state_file=settings.carries_state_file, flavor=CARRY_FLAVOR)
+        # Las buenas partidas bajan el índice troll y las trolleadas el de carry.
+        self.trolls.set_redeemer(self.carry_detector)
+        self.carries.set_redeemer(self.troll_detector)
 
     async def setup_hook(self) -> None:
         await self.riot.start()

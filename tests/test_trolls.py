@@ -20,6 +20,7 @@ from bogabot.core.models import MatchRecord, TrollLevel  # noqa: E402
 from bogabot.core.timeutils import start_of_week  # noqa: E402
 from bogabot.modules.lol.trolls import TrollService  # noqa: E402
 from bogabot.storage.memory import InMemoryStorage  # noqa: E402
+from bogabot.carries.rules import CARRY_CATALOG  # noqa: E402
 from bogabot.trolls.detector import TrollDetector  # noqa: E402
 from bogabot.trolls.rules import RULES  # noqa: E402
 from bogabot.trolls.schema import TrollConfig, TrollConfigError, load_troll_config  # noqa: E402
@@ -275,6 +276,8 @@ class TestTrollConfig(unittest.TestCase):
             self._load("index: {prior_game: 2}\n")
         with self.assertRaises(TrollConfigError):
             self._load("index: {max_game_points: 0}\n")
+        with self.assertRaises(TrollConfigError):
+            self._load("index: {minor_game_weight: 2}\n")
 
     def test_index_config(self):
         cfg = self._load("index: {prior_games: 0, max_game_points: 15}\n")
@@ -355,6 +358,44 @@ class TestTrollService(unittest.TestCase):
         cfg = replace(TrollConfig.default(), **index)
         settings = SimpleNamespace(timezone=_TZ, general_channel_id=999)
         return TrollService(self.store, TrollDetector(cfg), settings)  # type: ignore[arg-type]
+
+    def test_frequent_player_with_bad_games_vs_rare_constant_troll(self):
+        # peponullo juega mucho: 3 trolleadas, muchas partidas flojas en ranked
+        # y varias buenas. mcjhonson juega poco y trollea siempre: va primero.
+        trolleada = dict(kills=1, deaths=14, assists=2, deaths_before_10=4, team_kills=25)
+        floja = dict(queue_id=440, kills=2, deaths=8, assists=3, team_kills=25, damage_to_champions=9000,
+                     deaths_before_10=3, gold_diff_15=-2700)
+        buena = dict(win=True, kills=12, deaths=2, assists=8, team_kills=30, damage_to_champions=37000)
+        games = [trolleada] * 3 + [floja] * 20 + [buena] * 5
+        for i, g in enumerate(games):
+            self._save(match_id=f"LA2_P{i}", discord_id=1, game_name="peponullo",
+                       game_creation=self.week_start + timedelta(minutes=10 + i), **g)
+        for i in range(2):
+            self._save(match_id=f"LA2_M{i}", discord_id=2, game_name="mcjhonson",
+                       game_creation=self.week_start + timedelta(minutes=10 + i), **trolleada)
+        self.service.set_redeemer(TrollDetector(TrollConfig.default(CARRY_CATALOG)))
+        rows = asyncio.run(self.service.standings("week"))
+        self.assertEqual([s.display_name for s in rows], ["mcjhonson", "peponullo"])
+        self.assertGreater(rows[0].index, 3 * rows[1].index)
+
+    def test_good_games_lower_the_troll_index(self):
+        trolleada = dict(kills=1, deaths=14, assists=2, deaths_before_10=4, team_kills=25)
+        buena = dict(win=True, kills=12, deaths=2, assists=8, team_kills=30, damage_to_champions=37000)
+        self._save(match_id="LA2_A0", discord_id=1, game_name="A", **trolleada)
+        self._save(match_id="LA2_A1", discord_id=1, game_name="A", win=True)
+        self._save(match_id="LA2_B0", discord_id=2, game_name="B", **trolleada)
+        self._save(match_id="LA2_B1", discord_id=2, game_name="B", **buena)
+        self.service.set_redeemer(TrollDetector(TrollConfig.default(CARRY_CATALOG)))
+        rows = {s.display_name: s for s in asyncio.run(self.service.standings("week"))}
+        self.assertLess(rows["B"].index, rows["A"].index)  # la carreada de B le bajó el índice
+        buena_v = self.service.evaluate(record(**buena))
+        self.assertLess(self.service.game_index_points(buena_v), 0)
+
+    def test_minor_games_weigh_less(self):
+        floja = self.service.evaluate(record(queue_id=440, kills=2, deaths=8, assists=3, team_kills=25,
+                                             damage_to_champions=9000, deaths_before_10=3, gold_diff_15=-2700))
+        self.assertEqual(floja.level, TrollLevel.NONE)
+        self.assertAlmostEqual(self.service.game_index_points(floja), floja.points * 0.3)
 
     def test_single_lucky_game_does_not_crown_you(self):
         # "Suerte": 1 partida con alerta justa. "Constante": 6 partidas, todas feas.

@@ -128,6 +128,11 @@ _Última actualización: 2026-09-29_
       partida (`index.max_game_points`, default 30). `/trolls` muestra
       categoría (😇 Santo → 💀 Leyenda troll), % de partidas trolleadas y
       tendencia vs. el período anterior — 2026-09-29
+- [x] Índice v3: las partidas flojas (bajo el nivel de aviso) pesan ×0.3
+      (`index.minor_game_weight`) y las carreadas restan ×0.5 del índice
+      troll (`index.redemption`; y las trolleadas restan del de carry).
+      Antes quien jugaba mucho acumulaba por partidas flojas en ranked y
+      quedaba arriba del que trolleaba siempre — 2026-10-01
 
 - [x] Detector de trolls v3 — 2026-09-29
   - Situaciones nuevas del timeline: "nos tiraban la base y estaba
