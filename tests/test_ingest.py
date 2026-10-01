@@ -236,5 +236,24 @@ class TestIngestPass(unittest.TestCase):
         asyncio.run(scenario())
 
 
+    def test_from_scratch_reanalyzes_up_to_date_matches(self):
+        async def scenario():
+            store = InMemoryStorage()
+            await _link_players(store, 1, 2)
+            riot = _MatchRiot({"LA2_1": match_json("LA2_1")}, {"puuid-1": ["LA2_1"], "puuid-2": ["LA2_1"]})
+            service = _service(riot, store)
+            await service.ingest_all()  # quedan analizadas con la versión actual
+            self.assertEqual(await service.pending_enrichment(), [])
+            self.assertEqual(len(await service.pending_enrichment(everything=True)), 2)
+            riot.match_calls.clear()
+            service._match_cache.clear()
+            service._timeline_cache.clear()
+            updated, unchanged, failed = await service.enrich_stored_matches(quiet=True, everything=True)
+            self.assertEqual((updated + unchanged, failed), (2, 0))
+            self.assertEqual(riot.match_calls, ["LA2_1"])  # se volvió a pedir (una vez, caché)
+
+        asyncio.run(scenario())
+
+
 if __name__ == "__main__":
     unittest.main()

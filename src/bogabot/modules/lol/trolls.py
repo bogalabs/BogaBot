@@ -93,6 +93,14 @@ class TrollService:
             await asyncio.to_thread(self._state_path.write_text, data, "utf-8")
         return self._reset_at
 
+    async def clear_reset(self) -> None:
+        """Deshace `/trolls-reiniciar`: la tabla vuelve a contar todo el
+        historial guardado."""
+        self._reset_at = None
+        if self._state_path is not None and self._state_path.exists():
+            data = json.dumps({"ranking_reset_at": None})
+            await asyncio.to_thread(self._state_path.write_text, data, "utf-8")
+
     def _since_reset(self, records: list[MatchRecord]) -> list[MatchRecord]:
         if self._reset_at is None:
             return records

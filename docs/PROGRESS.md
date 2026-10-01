@@ -157,6 +157,10 @@ _Última actualización: 2026-09-29_
       automático y silencioso de partidas viejas al arrancar (sin mensajes
       ni logs; solo se actualiza la tabla troll) — 2026-09-30
 
+- [x] `/trolls-recalcular desde_cero:True`: reanaliza todas las partidas
+      (aunque ya estuvieran al día) y la tabla troll vuelve a contar todo el
+      historial con los criterios actuales — 2026-10-01
+
 ## 🚧 En progreso
 - [ ] _(nada activo)_
 

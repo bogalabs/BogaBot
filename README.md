@@ -364,7 +364,9 @@ Las reglas del timeline usan una consulta más a Riot por partida. Las
 partidas guardadas antes (o analizadas con una versión vieja) **se
 recalculan solas y en silencio** al arrancar el bot: sin mensajes, sin logs
 visibles y sin avisos; lo único que cambia es la tabla troll.
-`/trolls-recalcular` fuerza lo mismo a mano (responde solo a quien lo pide).
+`/trolls-recalcular` fuerza lo mismo a mano (responde solo a quien lo pide); con
+`desde_cero: True` reanaliza **todas** las partidas guardadas y la tabla vuelve a
+contar todo el historial (deshace `/trolls-reiniciar`).
 
 ## Cómo se calcula el ranking
 Cada partida se guarda como un registro por jugador, **pero solo si jugaste

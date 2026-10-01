@@ -333,9 +333,12 @@ class LolCog(commands.Cog):
 
     @app_commands.command(
         name="trolls-recalcular",
-        description="Completa las partidas viejas con los datos del detector de trolls (solo rol dev).",
+        description="Recalcula la tabla troll con los criterios actuales (solo rol dev).",
     )
-    async def trolls_recalcular(self, interaction: discord.Interaction) -> None:
+    @app_commands.describe(
+        desde_cero="Reanaliza TODAS las partidas guardadas y la tabla vuelve a contar todo el historial.",
+    )
+    async def trolls_recalcular(self, interaction: discord.Interaction, desde_cero: bool = False) -> None:
         await interaction.response.defer(ephemeral=True)
         if not await self._check_admin(interaction):
             return
@@ -345,20 +348,28 @@ class LolCog(commands.Cog):
         if self._recalc_task is not None and not self._recalc_task.done():
             await interaction.followup.send("Ya hay un recálculo corriendo; te aviso acá cuando termine.")
             return
-        pending = await self.bot.ingest.pending_enrichment()
+        if desde_cero:
+            # La tabla vuelve a contar todo el historial (deshace /trolls-reiniciar)
+            # y se reanalizan todas las partidas, aunque ya estuvieran al día.
+            await self.bot.trolls.clear_reset()
+        pending = await self.bot.ingest.pending_enrichment(everything=desde_cero)
         if not pending:
-            await interaction.followup.send("✅ Todas las partidas guardadas ya tienen los datos completos.")
+            await interaction.followup.send(
+                "✅ Todas las partidas ya están analizadas con los criterios actuales y la tabla ya los usa. "
+                "Para reanalizar todo igual, usá `desde_cero: True`."
+            )
             return
         await interaction.followup.send(
-            f"⏳ Recalculando {len(pending)} partidas-jugador en segundo plano. No postea nada: "
-            f"la tabla troll (`/trolls`) se actualiza sola a medida que avanza."
+            f"⏳ Recalculando {'de 0 ' if desde_cero else ''}{len(pending)} partidas-jugador en segundo plano. "
+            f"No postea nada: la tabla troll (`/trolls`) se actualiza sola a medida que avanza."
         )
-        self._recalc_task = asyncio.create_task(self._run_recalc(interaction))
+        self._recalc_task = asyncio.create_task(self._run_recalc(interaction, desde_cero))
 
-    async def _run_recalc(self, interaction: discord.Interaction) -> None:
+    async def _run_recalc(self, interaction: discord.Interaction, everything: bool = False) -> None:
         """Recálculo silencioso: el resultado solo lo ve quien lo pidió."""
         try:
-            updated, unchanged, failed = await self.bot.ingest.enrich_stored_matches(quiet=True)
+            updated, unchanged, failed = await self.bot.ingest.enrich_stored_matches(
+                quiet=True, everything=everything)
             text = (f"✅ Recálculo terminado: {updated} completadas, {unchanged} sin cambios, "
                     f"{failed} con error.")
         except Exception:  # noqa: BLE001 - que se entere solo quien lo pidió

@@ -223,7 +223,8 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   si #general falla, la línea cae al canal de trolls. `LolScheduler.backfill_job`
   recalcula al arrancar, en silencio (`enrich_stored_matches(quiet=True)`:
   logs solo DEBUG, nada a Discord, sin avisos), las partidas con
-  `timeline_version` vieja; se apaga solo. Las situaciones del timeline (base perdida
+  `timeline_version` vieja; se apaga solo. `/trolls-recalcular desde_cero:True`
+  reanaliza todas (`everything=True`) y deshace el reinicio (`clear_reset`). Las situaciones del timeline (base perdida
   estando lejos, throw, AFK, morir con oro) las calcula `riot/mapper.py`;
   si se agrega una, subir `TIMELINE_VERSION` para que `/trolls-recalcular`
   reanalice las partidas viejas. Solo se avisan partidas que

@@ -83,7 +83,7 @@ class HelpCog(commands.Cog):
                     f"`/link-admin <usuario> <Nombre#TAG>`{admin_where} — vinculá la cuenta de otro.\n"
                     f"`/unlink-admin <usuario>`{admin_where} — desvinculá la cuenta de otro.\n"
                     f"`/ingest-now`{admin_where} — forzá una ingesta de partidas.\n"
-                    f"`/trolls-recalcular`{admin_where} — completá las partidas viejas con los datos del detector troll.\n"
+                    f"`/trolls-recalcular [desde_cero]`{admin_where} — recalculá la tabla troll (desde_cero: todo el historial).\n"
                     f"`/trolls-reiniciar`{admin_where} — el ranking troll arranca de cero desde ahora.\n"
                     "`/puntos-dar <usuario> <cantidad>` — sumá o restá puntos.\n"
                     "`/sonido-forzar [nombre] [canal]` — el bot entra a un canal de voz y tira ese sonido.\n"
