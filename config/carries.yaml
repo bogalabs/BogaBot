@@ -1,0 +1,77 @@
+# ==========================================================================
+# Detector de carreadas de BogaBot
+# --------------------------------------------------------------------------
+# Igual que config/trolls.yaml, pero premiando. Editá este archivo para
+# ajustar qué cuenta como carreada SIN tocar código (reiniciá el bot).
+# La tabla de carreadas se calcula al vuelo: un cambio acá recalcula
+# también el historial.
+#
+# Criterio: carreada = IMPACTO RELATIVO A TU EQUIPO, no un KDA lindo en una
+# partida fácil. Las métricas se miden contra el equipo (% del daño, % de las
+# kills, participación) o contra la duración, y:
+#   - Las jugadas "menores" (KDA limpio, KP alta, ganar la línea, visión,
+#     farm, primera sangre) suman entre todas como mucho `weak_points_cap`.
+#     Hace falta una jugada fuerte: daño enorme, muchas kills, pentakill,
+#     racha, no morir, remontada, robar un objetivo, muralla, habilitador.
+#   - Perder pesa la mitad (`loss_multiplier`).
+#   - Según el total:
+#        >= levels.carry      -> ⭐ carreada: se avisa en el canal de carreadas
+#        >= levels.legendaria -> 🌟 legendaria: además, una línea en #general
+#
+# Un umbral con sufijo `_aram` o `_chaos` pisa al general en ese modo. Para
+# apagar una regla: `enabled: false`. `/carries-reglas` muestra lo activo.
+# ==========================================================================
+
+version: 1
+
+levels:
+  carry: 8          # desde acá es carreada (canal de carreadas). Necesita una jugada fuerte.
+  legendaria: 15    # desde acá es legendaria y va también a #general
+
+ranked_multiplier: 1.25  # carrear en ranked vale más
+win_multiplier: 1.0
+loss_multiplier: 0.5     # carrear y perder pesa la mitad
+weak_points_cap: 4       # tope de las jugadas menores (🔸 en /carries-reglas)
+alert_max_age_hours: 36  # partidas más viejas no se avisan (igual suman a la tabla)
+
+index:
+  prior_games: 2         # suavizado: 1 partida suelta no te corona
+  max_game_points: 30    # tope de una partida dentro del índice
+
+rules:
+  # 🖐️ Hizo una pentakill (+3 por cada otra).
+  pentakill:        { points: 8, extra_each: 3 }
+  # 💥 Una gran parte del daño a campeones de su equipo (+1 si fue enorme).
+  damage_carry:     { points: 4, min_share: 0.33, min_share_aram: 0.28, min_share_chaos: 0.28, huge_share: 0.42, huge_bonus: 1, min_minutes: 15 }
+  # 🐉 Robó un Barón, un dragón o un heraldo.
+  steal:            { points: 4, min_steals: 1 }
+  # 🔄 Ganaron estando muy abajo en oro, y él fue clave (daño o participación).
+  comeback:         { points: 4, min_deficit: 5000, min_share: 0.28, min_kp: 0.65 }
+  # 💚 Support que estuvo en casi todas las kills con una banda de asistencias, y ganaron.
+  enabler:          { points: 5, min_kp: 0.75, min_assists: 15, assists_per_10: 6 }
+  # 🏆 Ganó la Arena.
+  arena_champion:   { points: 4, max_placement: 1 }
+  # 🗡️ Muchas kills para lo que duró la partida, y una buena parte de las de su equipo.
+  slayer:           { points: 3, min_kills: 8, min_kills_aram: 12, min_kills_chaos: 14, kills_per_10: 3.5, kills_per_10_aram: 6, kills_per_10_chaos: 7, min_kill_share: 0.3 }
+  # 4️⃣ Hizo una quadrakill.
+  quadrakill:       { points: 3 }
+  # 🔥 Racha de 8 kills o más sin morir.
+  legendary:        { points: 3, min_spree: 8 }
+  # 🛡️ No murió nunca en una partida larga y estuvo en las peleas (+2 si estuvo en casi todas).
+  immortal:         { points: 4, min_minutes: 22, min_takedowns: 8, takedowns_per_10: 3, min_kp: 0.5, high_kp: 0.7, high_kp_bonus: 2 }
+  # 🧱 Tanqueó una banda del daño del equipo y estuvo en las peleas, y ganaron.
+  wall:             { points: 4, min_taken_share: 0.33, min_kp: 0.6 }
+  # 🤝 Participó en la gran mayoría de las kills de su equipo. (menor)
+  kp_carry:         { points: 2, min_kp: 0.75, min_kp_aram: 0.85, min_team_kills: 15 }
+  # 👑 Muy arriba en oro contra su rival de línea al minuto 15. (menor)
+  lane_kingdom:     { points: 2, min_lead: 2500, min_lead_support: 1500 }
+  # ⚔️ Ganó varios duelos 1 contra 1. (menor)
+  solo_killer:      { points: 2, min_solo_kills: 3 }
+  # ✨ KDA muy alto con varias kills/asistencias (el viejo criterio de carry: solo suma poco). (menor)
+  clean_kda:        { points: 2, min_kda: 6, min_takedowns: 10 }
+  # 🩸 Se llevó la primera sangre. (menor)
+  first_blood_kill: { points: 1 }
+  # 👁️ Visión muy por encima de lo normal (a los supports se les exige más). (menor)
+  vision_lord:      { points: 1, min_per_min: 1.4, min_per_min_support: 2.2, min_minutes: 20 }
+  # 🌾 Farm por minuto altísimo para su rol. (menor)
+  farm_machine:     { points: 1, min_cs_per_min: 8.5, min_cs_per_min_jungle: 7, min_minutes: 15 }

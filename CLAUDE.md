@@ -61,15 +61,18 @@ src/bogabot/
 ├── trolls/                 # detector de trolls (lógica pura, sobre MatchRecord)
 │   ├── rules.py            # catálogo de reglas (RULES) con sus params por defecto
 │   ├── schema.py           # carga/valida config/trolls.yaml
-│   └── detector.py         # TrollDetector.evaluate(record) -> TrollVerdict
+│   └── detector.py         # TrollDetector.evaluate(record) -> TrollVerdict (sirve para cualquier catálogo)
+├── carries/rules.py        # catálogo de carreadas (CARRY_CATALOG): mismo motor, premiando
 └── modules/lol/            # feature LoL como cog autocontenido
     ├── cog.py              # slash commands /link /unlink /link-admin /ingest-now /ranking /trolls /troll-analizar ...
     ├── ingest.py           # ingesta de partidas + timeline (devuelve list[MatchRecord] nuevos)
     ├── ranking.py          # agrega stats + arma embeds
-    ├── trolls.py           # TrollService: ranking troll por período + embeds de alertas
+    ├── trolls.py           # TrollService + Flavor: ranking por período + mensajes (troll o carry)
+    ├── carries.py          # CARRY_FLAVOR (textos de las carreadas)
     └── scheduler.py        # daily_job + notify_job + listener de ingesta (avisos y alertas troll)
 config/scoring.yaml         # fórmula del ranking, editable sin tocar código
 config/trolls.yaml          # umbrales/puntos del detector de trolls, editable sin tocar código
+config/carries.yaml         # umbrales/puntos del detector de carreadas
 tests/                      # tests de lógica pura (sin red ni tokens)
 ```
 
@@ -235,6 +238,15 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   corría en el job diario (para entonces el poll ya había ingerido todo y
   nunca avisaba) y cuyo criterio (KDA < 0.5 **y** FF antes del 20) casi
   nunca se cumplía.
+- **Carreadas:** el mismo motor que trolls con otro `Catalog`
+  (`carries/rules.py::CARRY_CATALOG`: niveles `carry`/`legendaria`, perder
+  ×0.5) y otro `Flavor` (`modules/lol/carries.py`); `bot.carries` es un
+  `TrollService` más. Criterio: impacto relativo al equipo (% del daño, % de
+  las kills, KP), medido contra la duración; las jugadas menores (`weak`,
+  incluido el viejo "KDA alto") tienen tope. Canal `CARRY_CHANNEL_ID`
+  (default el de trolls); solo la legendaria va a #general. Ojo: el
+  `PlayerStats.carry_games` del ranking general (gana + KDA ≥ 5) es otro
+  criterio, previo, y no se tocó.
 - **Logging a Discord:** `DiscordLogHandler` (en `core/`) se engancha al
   logger `"bogabot"` (no a `discord.*`, para no capturar el ruido de la
   librería) cuando hay `LOG_CHANNEL_ID`. Solo encola texto formateado en

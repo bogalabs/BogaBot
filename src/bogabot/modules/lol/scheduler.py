@@ -120,6 +120,15 @@ class LolScheduler(commands.Cog):
             return await self._text_channel(s.troll_channel_id, "TROLL_CHANNEL_ID")
         return await self._text_channel(s.ranking_channel_id, "RANKING_CHANNEL_ID")
 
+    async def _carry_channel(self) -> discord.TextChannel | None:
+        if self.bot.settings.carry_channel_id is not None:
+            return await self._text_channel(self.bot.settings.carry_channel_id, "CARRY_CHANNEL_ID")
+        return await self._troll_channel()
+
+    def _verdict_feeds(self):
+        """(servicio, canal) de cada tabla: trolls y carreadas."""
+        return ((self.bot.trolls, self._troll_channel), (self.bot.carries, self._carry_channel))
+
     # --- Job diario --------------------------------------------------------
     @tasks.loop(hours=24)  # el horario real se fija en cog_load con change_interval
     async def daily_job(self) -> None:
@@ -149,23 +158,26 @@ class LolScheduler(commands.Cog):
             prev_rows = await self.bot.ranking.previous_week_rows()
             await channel.send(embed=self.bot.ranking.build_trolls_and_pros_embed(prev_rows))
 
-        try:
-            await self._post_troll_summaries(is_monday)
-        except Exception:  # noqa: BLE001 - el resto de la corrida ya salió
-            log.exception("Error posteando los resúmenes troll.")
+        for service, get_channel in self._verdict_feeds():
+            try:
+                await self._post_summaries(service, await get_channel(), is_monday)
+            except Exception:  # noqa: BLE001 - el resto de la corrida ya salió
+                log.exception("Error posteando los resúmenes de %s.", service.flavor.noun)
 
     async def _post_troll_summaries(self, is_monday: bool) -> None:
-        """Ranking troll de la semana si hubo trolleadas hoy y, los lunes, la
-        corona del "Troll de la semana" que cerró."""
-        channel = await self._troll_channel()
+        await self._post_summaries(self.bot.trolls, await self._troll_channel(), is_monday)
+
+    @staticmethod
+    async def _post_summaries(service, channel: discord.TextChannel | None, is_monday: bool) -> None:
+        """Ranking de la semana si hoy hubo trolleadas (o carreadas) y, los
+        lunes, la corona del "Troll/Carry de la semana" que cerró."""
         if channel is None:
             return
-        trolls = self.bot.trolls
-        if await trolls.had_trolls_today():
-            rows = await trolls.standings("week")
-            await channel.send(embed=trolls.build_standings_embed(rows, "week"))
+        if await service.had_trolls_today():
+            rows = await service.standings("week")
+            await channel.send(embed=service.build_standings_embed(rows, "week"))
         if is_monday:
-            content, embed = trolls.build_weekly_recap(await trolls.standings("prev_week"))
+            content, embed = service.build_weekly_recap(await service.standings("prev_week"))
             await channel.send(content, embed=embed, allowed_mentions=_USER_MENTIONS)
 
     @daily_job.before_loop
@@ -214,22 +226,29 @@ class LolScheduler(commands.Cog):
     # --- Avisos por partida (listener de IngestService) --------------------
     async def _on_new_matches(self, records: list[MatchRecord]) -> None:
         verdicts = {r.dedup_key: self.bot.trolls.evaluate(r) for r in records}
-        # Cada aviso aislado: si falla el de partida, las alertas troll salen igual.
+        carry_verdicts = {r.dedup_key: self.bot.carries.evaluate(r) for r in records}
+        # Cada aviso aislado: si falla el de partida, las alertas salen igual.
         try:
-            await self._notify_new_matches(records, verdicts)
+            await self._notify_new_matches(records, verdicts, carry_verdicts)
         except Exception:  # noqa: BLE001
             log.exception("Error avisando las partidas nuevas.")
-        try:
-            await self._announce_trolls(records, verdicts)
-        except Exception:  # noqa: BLE001
-            log.exception("Error mandando las alertas troll.")
+        for (service, get_channel), by_key in zip(self._verdict_feeds(), (verdicts, carry_verdicts)):
+            try:
+                await self._announce(service, get_channel, records, by_key)
+            except Exception:  # noqa: BLE001
+                log.exception("Error mandando los avisos de %s.", service.flavor.noun)
 
     async def _announce_trolls(self, records: list[MatchRecord], verdicts: dict[str, TrollVerdict]) -> None:
-        """Por cada jugador que pasó el umbral troll en una partida reciente:
-        la línea anecdótica (con la mención) y el detalle en el canal de
-        trolls. Si es papelón, la línea va además a #general (y en el canal
-        de trolls queda solo el detalle, para no etiquetar dos veces)."""
-        trolls = self.bot.trolls
+        await self._announce(self.bot.trolls, self._troll_channel, records, verdicts)
+
+    async def _announce(self, service, get_channel, records: list[MatchRecord],
+                        verdicts: dict[str, TrollVerdict]) -> None:
+        """Por cada jugador que pasó el umbral en una partida reciente: la
+        línea anecdótica (con la mención) y el detalle en el canal de trolls
+        (o de carreadas). Si es papelón / legendaria, la línea va además a
+        #general (y en el canal propio queda solo el detalle, para no
+        etiquetar dos veces)."""
+        trolls = service
         flagged = [
             verdicts[r.dedup_key]
             for r in sorted(records, key=lambda r: r.game_end)
@@ -240,14 +259,14 @@ class LolScheduler(commands.Cog):
             if trolls.is_fresh(v.record):
                 fresh.append(v)
             else:
-                log.info("Partida troll vieja (%s, %d pts); suma al ranking pero no la aviso.",
-                         v.record.dedup_key, v.points)
+                log.info("Partida vieja (%s, %s de %d pts); suma al ranking pero no la aviso.",
+                         v.record.dedup_key, trolls.flavor.noun, v.points)
         if not fresh:
             return
 
         week = await trolls.standings("week")
         by_player = {s.discord_id: s for s in week}
-        troll_channel = await self._troll_channel()
+        troll_channel = await get_channel()
         general_channel = None
         if any(v.level >= TrollLevel.PAPELON for v in fresh):
             general_channel = await self._text_channel(self.bot.settings.general_channel_id, "GENERAL_CHANNEL_ID")
@@ -260,8 +279,8 @@ class LolScheduler(commands.Cog):
             # El canal de trolls siempre lleva el detalle; la mención solo si no
             # salió ya en #general (para no etiquetar dos veces).
             await self._safe_send(troll_channel, None if in_general else line, embed=embed)
-            log.info("Trolleada %s (%d pts) de %s avisada%s.", v.level.name, v.points,
-                     v.record.dedup_key, " también en #general" if in_general else "")
+            log.info("%s %s (%d pts) de %s avisada%s.", trolls.flavor.noun.capitalize(), v.level.name,
+                     v.points, v.record.dedup_key, " también en #general" if in_general else "")
 
     async def _safe_send(self, channel: discord.TextChannel | None, content: str | None,
                          embed: discord.Embed | None = None) -> bool:
@@ -272,12 +291,14 @@ class LolScheduler(commands.Cog):
             await channel.send(content, embed=embed, allowed_mentions=_USER_MENTIONS)
             return True
         except discord.HTTPException:
-            log.exception("No pude mandar un aviso troll a #%s.", channel.name)
+            log.exception("No pude mandar un aviso a #%s.", channel.name)
             return False
 
-    async def _notify_new_matches(self, records: list[MatchRecord], verdicts: dict[str, TrollVerdict]) -> None:
-        """Postea un aviso (cuadro con las 10 posiciones + troll-o-metro) por
-        cada partida nueva, etiquetando a los jugadores del grupo."""
+    async def _notify_new_matches(self, records: list[MatchRecord], verdicts: dict[str, TrollVerdict],
+                                  carry_verdicts: dict[str, TrollVerdict] | None = None) -> None:
+        """Postea un aviso (cuadro con las 10 posiciones + troll-o-metro y
+        carry-o-metro) por cada partida nueva, etiquetando a los jugadores."""
+        carry_verdicts = carry_verdicts or {}
         if not records or self.bot.settings.match_notify_channel_id is None:
             return
         channel = await self._text_channel(self.bot.settings.match_notify_channel_id, "MATCH_NOTIFY_CHANNEL_ID")
@@ -294,7 +315,10 @@ class LolScheduler(commands.Cog):
             if summary is None:
                 continue
             meter = self.bot.trolls.meter_lines(match_verdicts)
-            await channel.send(embed=self._match_notification_embed(summary, meter))
+            carries = [carry_verdicts[v.record.dedup_key] for v in match_verdicts
+                       if v.record.dedup_key in carry_verdicts and not carry_verdicts[v.record.dedup_key].is_clean]
+            carry_meter = self.bot.carries.meter_lines(carries) if carries else None
+            await channel.send(embed=self._match_notification_embed(summary, meter, carry_meter))
             self._notified[match_id] = None
             while len(self._notified) > _NOTIFIED_MEMORY:
                 self._notified.pop(next(iter(self._notified)))
@@ -305,7 +329,8 @@ class LolScheduler(commands.Cog):
         return f"{who} — **{p.champion}** ({p.kills}/{p.deaths}/{p.assists}) 🌾{p.cs}"
 
     @classmethod
-    def _match_notification_embed(cls, summary: MatchSummary, troll_meter: str | None = None) -> discord.Embed:
+    def _match_notification_embed(cls, summary: MatchSummary, troll_meter: str | None = None,
+                                  carry_meter: str | None = None) -> discord.Embed:
         linked = [p for p in summary.participants if p.discord_id is not None]
         if linked and all(p.team_id == linked[0].team_id for p in linked):
             title = "🏆 ¡Victoria!" if linked[0].win else "💀 Derrota"
@@ -344,5 +369,7 @@ class LolScheduler(commands.Cog):
 
         if troll_meter:
             embed.add_field(name="🤡 Troll-o-metro", value=troll_meter, inline=False)
+        if carry_meter:
+            embed.add_field(name="⭐ Carry-o-metro", value=carry_meter, inline=False)
 
         return embed

@@ -55,6 +55,17 @@ class HelpCog(commands.Cog):
                 ),
                 inline=False,
             )
+            embed.add_field(
+                name="⭐ Carreadas",
+                value=(
+                    "`/carries [Semana|Semana pasada|Mes|Histórico]` — ranking de carreadas.\n"
+                    "`/carry-analizar [usuario] [partida]` — las jugadas de carry de una partida y por qué.\n"
+                    "`/carries-reglas` 🔒 — qué cuenta como carreada y cuántos puntos suma.\n"
+                    "*(Carreada = impacto en tu equipo, no un KDA lindo en una partida fácil. "
+                    "Solo las legendarias van a general.)*"
+                ),
+                inline=False,
+            )
 
         if has_points:
             value = (
@@ -83,8 +94,8 @@ class HelpCog(commands.Cog):
                     f"`/link-admin <usuario> <Nombre#TAG>`{admin_where} — vinculá la cuenta de otro.\n"
                     f"`/unlink-admin <usuario>`{admin_where} — desvinculá la cuenta de otro.\n"
                     f"`/ingest-now`{admin_where} — forzá una ingesta de partidas.\n"
-                    f"`/trolls-recalcular [desde_cero]`{admin_where} — recalculá la tabla troll (desde_cero: todo el historial).\n"
-                    f"`/trolls-reiniciar`{admin_where} — el ranking troll arranca de cero desde ahora.\n"
+                    f"`/trolls-recalcular [desde_cero]`{admin_where} — recalculá las tablas troll y carry (desde_cero: todo el historial).\n"
+                    f"`/trolls-reiniciar` / `/carries-reiniciar`{admin_where} — el ranking arranca de cero desde ahora.\n"
                     "`/puntos-dar <usuario> <cantidad>` — sumá o restá puntos.\n"
                     "`/sonido-forzar [nombre] [canal]` — el bot entra a un canal de voz y tira ese sonido.\n"
                     "`/sonido-add <nombre> <audio>` — subí un sonido permanente.\n"
