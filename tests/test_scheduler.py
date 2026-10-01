@@ -173,6 +173,22 @@ class TestTrollAnnouncements(unittest.TestCase):
         [(no_content, embed)] = f.channels[CARRY].sent
         self.assertIsNone(no_content)
 
+    def test_match_notification_shows_each_score_once(self):
+        parts = [
+            MatchParticipant(discord_id=1 if pid == 1 else None, display_name=f"J{pid}", champion=f"C{pid}",
+                             team_id=100 if pid <= 5 else 200, position=("TOP", "JUNGLE", "MIDDLE", "BOTTOM",
+                                                                          "UTILITY")[(pid - 1) % 5],
+                             win=pid > 5, kills=7, deaths=3, assists=pid, cs=150)
+            for pid in range(1, 11)
+        ]
+        summary = MatchSummary(match_id="LA2_9", queue_id=420, game_duration_seconds=1800, participants=parts)
+        embed = LolScheduler._match_notification_embed(summary)
+        text = "\n".join(f.value for f in embed.fields)
+        self.assertEqual(text.count("(7/3/1)"), 1)  # el KDA de cada jugador aparece una sola vez
+        lanes = next(f for f in embed.fields if "Línea vs línea" in f.name)
+        self.assertIn("**TOP:** <@1> (C1)  🆚  J6 (C6)", lanes.value)
+        self.assertNotIn("/", lanes.value)
+
     def test_monday_recap_crowns_the_troll_of_the_week(self):
         f = _Fixture()
         last_week = datetime.now(timezone.utc) - timedelta(days=7)

@@ -146,8 +146,9 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   (`core/models.py`, no se persiste) con un `MatchParticipant` por jugador,
   marcando `discord_id` cuando el puuid está vinculado. `scheduler.py::_match_notification_embed`
   arma el embed: resultado general (o "equipos contrarios" si el grupo quedó
-  dividido), un field por equipo y un field "línea vs línea" con el
-  matchup por posición. Se etiqueta (`<@id>`) a los vinculados; al resto se
+  dividido), un field por equipo (con KDA y farm) y un field "línea vs
+  línea" con el matchup por posición (solo quién contra quién: el puntaje
+  no se repite). Se etiqueta (`<@id>`) a los vinculados; al resto se
   los muestra por su Riot ID.
 - **Farm (CS):** `riot/mapper.py::_farm` suma `totalMinionsKilled` +
   `neutralMinionsKilled`. Se guarda en `MatchRecord.cs` (ranking/scoring) y

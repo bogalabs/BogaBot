@@ -324,6 +324,11 @@ class LolScheduler(commands.Cog):
                 self._notified.pop(next(iter(self._notified)))
 
     @staticmethod
+    def _matchup_side(p: MatchParticipant) -> str:
+        who = f"<@{p.discord_id}>" if p.discord_id is not None else p.display_name
+        return f"{who} ({p.champion})"
+
+    @staticmethod
     def _player_line(p: MatchParticipant) -> str:
         who = f"<@{p.discord_id}>" if p.discord_id is not None else p.display_name
         return f"{who} — **{p.champion}** ({p.kills}/{p.deaths}/{p.assists}) 🌾{p.cs}"
@@ -359,8 +364,10 @@ class LolScheduler(commands.Cog):
         for p in summary.participants:
             if p.position:
                 by_position.setdefault(p.position, []).append(p)
+        # Acá solo quién contra quién: el KDA y el farm ya están en el cuadro de
+        # cada equipo (antes se repetían y el puntaje aparecía dos veces).
         lane_lines = [
-            f"**{pos}:** {cls._player_line(pair[0])}  🆚  {cls._player_line(pair[1])}"
+            f"**{pos}:** {cls._matchup_side(pair[0])}  🆚  {cls._matchup_side(pair[1])}"
             for pos in _LANE_ORDER
             if len(pair := by_position.get(pos, [])) == 2
         ]
