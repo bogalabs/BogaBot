@@ -53,6 +53,12 @@ index:
   # Tope de puntos de una sola partida dentro del índice (el papelón igual
   # se avisa con todos sus puntos): un desastre aislado no define la semana.
   max_game_points: 30
+  # Una partida que no llega a trolleada (floja: cargos menores) pesa esto.
+  # Así quien juega mucho no acumula índice por partidas malas pero no troll.
+  minor_game_weight: 0.3
+  # Las buenas partidas restan: los puntos de carreada de cada partida bajan
+  # el índice troll en esta proporción.
+  redemption: 0.5
 
 rules:
   # 🍽️ Muertes según la duración: umbral = max(min_deaths, deaths_per_10 × minutos / 10),

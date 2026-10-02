@@ -129,6 +129,9 @@ class TrollService:
         self._detector = detector
         self._settings = settings
         self.flavor = flavor
+        # La tabla opuesta (carreadas para trolls y al revés): sus puntos restan
+        # del índice (ver `index_redemption`). Se conecta en bot.py.
+        self._redeemer: TrollDetector | None = None
         # Desde cuándo cuenta el ranking troll (ver /trolls-reiniciar). Se
         # guarda en un JSON chiquito (TROLLS_STATE_FILE) para sobrevivir reinicios.
         self._state_path = Path(state_file) if state_file else None
@@ -171,6 +174,25 @@ class TrollService:
             return records
         return [r for r in records if r.game_creation >= self._reset_at]
 
+    def set_redeemer(self, detector: TrollDetector) -> None:
+        """Las partidas buenas para la tabla opuesta restan del índice de
+        esta: una carreada baja el índice troll, una trolleada el de carry."""
+        self._redeemer = detector
+
+    def game_index_points(self, verdict: TrollVerdict) -> float:
+        """Lo que aporta una partida al índice: sus puntos (con tope), ×
+        `minor_game_weight` si no llegó al nivel de aviso, menos una parte
+        de los puntos de la tabla opuesta. Puede ser negativo: una buena
+        partida baja el índice."""
+        c = self.config
+        own = float(min(verdict.points, c.index_max_game_points))
+        if verdict.level < TrollLevel.TROLL:
+            own *= c.index_minor_game_weight
+        if self._redeemer is not None and c.index_redemption:
+            other = self._redeemer.evaluate(verdict.record).points
+            own -= c.index_redemption * min(other, c.index_max_game_points)
+        return own
+
     @property
     def config(self) -> TrollConfig:
         return self._detector.config
@@ -197,7 +219,7 @@ class TrollService:
             s.display_name = r.game_name or s.display_name
             s.games += 1
             s.points += v.points
-            s.index_points += min(v.points, self.config.index_max_game_points)
+            s.index_points += self.game_index_points(v)
             s.troll_games += 1 if v.level >= TrollLevel.TROLL else 0
             s.papelones += 1 if v.level >= TrollLevel.PAPELON else 0
             for f in v.flags:
@@ -406,7 +428,8 @@ class TrollService:
         f = self.flavor
         embed = discord.Embed(title=f"{f.ranking_title} {PERIODS.get(period, '')}".strip(),
                               color=discord.Color(f.color))
-        footer = f"Índice = puntos {f.index_noun} por partida (jugar más no suma). /{f.command}-reglas"
+        footer = (f"Índice = puntos {f.index_noun} por partida: jugar más no suma, las partidas "
+                  f"flojas pesan poco y las del otro lado restan. /{f.command}-reglas")
         if self._reset_at is not None:
             footer += f" · Cuenta desde el {self._reset_at.astimezone(get_tz(self._settings.timezone)):%d/%m}"
         embed.set_footer(text=footer)
@@ -463,7 +486,9 @@ class TrollService:
             f"• Los {f.weak_label} (🔸) suman como mucho **{c.weak_points_cap:g} pts**: {f.weak_note}.\n"
             f"• **{c.troll_level}+ pts** → {f.emoji} {f.noun} ({f.channel_label})\n"
             f"• **{c.papelon_level}+ pts** → {f.historic_emoji} {f.historic_noun}: además, una línea en {general}\n"
-            f"• `/{f.command}` ordena por **índice** (puntos por partida): jugar más no suma.\n\n"
+            f"• `/{f.command}` ordena por **índice** (puntos por partida): jugar más no suma, las "
+            f"partidas que no llegan a {f.noun} pesan ×{c.index_minor_game_weight:g} y las "
+            f"partidas del otro lado (carreadas / trolleadas) restan ×{c.index_redemption:g}.\n\n"
         )
         lines = [
             f"{spec.emoji} **{spec.title}**{' 🔸' if spec.weak else ''} (+{int(cfg.params['points'])}) — "

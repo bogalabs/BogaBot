@@ -213,7 +213,11 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   para que la cantidad de partidas no pese; suavizado bayesiano hacia el
   promedio del grupo con `index.prior_games` partidas "fantasma" y con tope
   `index.max_game_points` por partida, para que 1 partida suelta o un
-  papelón monstruoso no decidan solos; los de 0 pts van siempre al fondo), así que
+  papelón monstruoso no decidan solos; las partidas bajo el nivel de aviso
+  pesan `index.minor_game_weight` y los puntos de la tabla opuesta restan
+  `index.redemption` — `TrollService.set_redeemer` en `bot.py` —, así que
+  quien juega mucho no acumula por partidas flojas y las buenas partidas
+  bajan el índice; los de 0 pts van siempre al fondo), así que
   cambiar el YAML recalcula el historial. `/trolls-reiniciar` guarda en
   `TROLLS_STATE_FILE` desde cuándo cuenta el ranking. Una partida floja no
   es trolleada: las reglas `weak=True` (mal rendimiento) suman entre todas
