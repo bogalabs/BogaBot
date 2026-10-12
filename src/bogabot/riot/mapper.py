@@ -151,6 +151,13 @@ def map_match(
         team_damage=_sum(team, "totalDamageDealtToChampions"),
         damage_taken=_opt_int(participant, "totalDamageTaken"),
         team_damage_taken=_sum(team, "totalDamageTaken"),
+        penta_kills=_opt_int(participant, "pentaKills"),
+        quadra_kills=_opt_int(participant, "quadraKills"),
+        largest_killing_spree=_opt_int(participant, "largestKillingSpree"),
+        first_blood_kill=participant.get("firstBloodKill"),
+        # "challenges" es un bloque opcional de match-v5: si falta, quedan en None.
+        solo_kills=_opt_int(participant.get("challenges") or {}, "soloKills"),
+        objective_steals=_opt_int(participant.get("challenges") or {}, "epicMonsterSteals"),
     )
     if timeline is not None:
         _apply_timeline(
@@ -176,7 +183,7 @@ def _opt_int(participant: dict, key: str) -> int | None:
 _MINUTE_MS = 60_000
 # Versión del análisis de timeline. Subirla cuando se agregan datos nuevos:
 # `/trolls-recalcular` completa los registros con una versión anterior.
-TIMELINE_VERSION = 3
+TIMELINE_VERSION = 4
 # Posición aproximada de cada nexo en la Grieta (coordenadas del mapa).
 _NEXUS_POSITION = {100: (1550, 1660), 200: (13200, 13200)}
 # Más lejos que esto del propio nexo = "no estaba defendiendo la base".
@@ -252,7 +259,23 @@ def _timeline_stats(timeline: dict, me: int, opponent: int | None,
     stats.update(_throws(events, kills, me, team_id, teammates))
     stats.update(_rich_deaths(frames, death_times, me))
     stats["afk_minutes"] = _afk_minutes(frames, me, death_times)
+    stats["max_gold_deficit"] = _max_gold_deficit(frames, teammates)
     return stats
+
+
+def _max_gold_deficit(frames: list[dict], teammates: set[int]) -> int:
+    """Peor desventaja de oro total del equipo contra el rival en la partida
+    (0 si nunca estuvo abajo). Sirve para detectar remontadas. Se saltean los
+    primeros 5 minutos (diferencias chicas sin sentido)."""
+    worst = 0
+    for frame in frames:
+        if int(frame.get("timestamp", 0)) < 5 * _MINUTE_MS:
+            continue
+        pframes = frame.get("participantFrames", {})
+        mine = sum(int(pf.get("totalGold", 0)) for pid, pf in pframes.items() if int(pid) in teammates)
+        theirs = sum(int(pf.get("totalGold", 0)) for pid, pf in pframes.items() if int(pid) not in teammates)
+        worst = max(worst, theirs - mine)
+    return worst
 
 
 def _pframe(frame: dict | None, pid: int) -> dict | None:

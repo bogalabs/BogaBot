@@ -33,14 +33,18 @@ src/bogabot/
 │   ├── rules.py            # catálogo de reglas (feeder, FF al 15, AFK...)
 │   ├── schema.py           # carga/valida config/trolls.yaml
 │   └── detector.py         # corre las reglas -> cargos, puntos y nivel
+├── carries/                # catálogo de carreadas (mismo motor que trolls/)
+│   └── rules.py
 └── modules/lol/            # feature LoL (un "cog" autocontenido)
     ├── cog.py              # /link /unlink /link-admin /ingest-now /ranking /trolls ...
     ├── ingest.py           # ingesta de partidas (+ timeline para el detector)
     ├── ranking.py          # agrega stats + arma embeds
-    ├── trolls.py           # ranking troll + embeds de alertas/papelones
+    ├── trolls.py           # ranking (troll/carry) + mensajes; los textos van en un Flavor
+    ├── carries.py          # textos de las carreadas (mismo servicio que trolls)
     └── scheduler.py        # job diario + chequeo de partidas nuevas + avisos
 config/scoring.yaml         # fórmula del ranking, editable sin tocar código
 config/trolls.yaml          # umbrales y puntos del detector de trolls
+config/carries.yaml         # umbrales y puntos del detector de carreadas
 ```
 
 **Ideas clave**
@@ -153,6 +157,9 @@ si pusiste `DISCORD_GUILD_ID`).
 | `GENERAL_CHANNEL_ID` | Canal general: ahí van los **papelones históricos** del detector de trolls. |
 | `TROLL_CHANNEL_ID` | Canal de alertas troll y ranking troll (opcional; default `RANKING_CHANNEL_ID`). |
 | `TROLLS_CONFIG_PATH` | Config del detector de trolls (default `config/trolls.yaml`). |
+| `CARRY_CHANNEL_ID` | Canal de avisos de carreadas (opcional; default el canal de trolls). |
+| `CARRIES_CONFIG_PATH` | Config del detector de carreadas (default `config/carries.yaml`). |
+| `CARRIES_STATE_FILE` | Desde cuándo cuenta el ranking de carreadas (`/carries-reiniciar`; default `data/carries_state.json`). |
 | `TROLLS_STATE_FILE` | Desde cuándo cuenta el ranking troll, lo escribe `/trolls-reiniciar` (default `data/trolls_state.json`). |
 | `DEV_ROLE_ID` | Rol habilitado para comandos de administración (`/link-admin`). |
 | `ADMIN_CHANNEL_ID` | Canal donde se pueden correr esos comandos (opcional). |
@@ -264,9 +271,11 @@ aparte `sshserver` (fuera de este repo).
   partida (por defecto la última guardada) y por qué suma o no. Sirve para
   calibrar los umbrales.
 - `/trolls-reglas` — qué detecta el bot y cuántos puntos suma cada cosa.
+- `/carries`, `/carry-analizar`, `/carries-reglas`, `/carries-reiniciar` — lo mismo
+  que los de trolls, para las carreadas (ver [Carreadas](#carreadas-)).
 - `/trolls-reiniciar` — (solo rol dev, en `ADMIN_CHANNEL_ID`) el ranking troll
   arranca de cero desde ahora (las partidas viejas quedan guardadas).
-- `/trolls-recalcular` — (solo rol dev, en `ADMIN_CHANNEL_ID`) vuelve a
+- `/trolls-recalcular` — (solo rol dev, en `ADMIN_CHANNEL_ID`; igual corre solo al arrancar) vuelve a
   pedir a Riot las partidas guardadas antes del detector nuevo para
   completarles las stats y el timeline. Corre en segundo plano.
 - `/help` y `/ayuda` — listan los comandos disponibles según el rol de quien
@@ -340,11 +349,17 @@ Criterios para no castigar juego normal:
 - Reglas que miden lo mismo no se suman (feeder reemplaza a KDA trágico y a
   tiempo muerto; ciego reemplaza a sin control wards).
 
+**Una partida floja no es una trolleada.** Los cargos "menores" (mal
+rendimiento: poca KP, poco daño, línea perdida, visión, farm, primera
+sangre, FF...) suman entre todos como mucho `weak_points_cap` (4). Para ser
+trolleada hace falta una **señal fuerte**: feeder, AFK, 0 kills y 0
+asistencias, ancla del equipo, vender items, dejar caer la base o throw.
+
 | Puntos de la partida | Qué pasa |
 |---|---|
-| menos de `levels.troll` (6) | Nada aparte; suma al ranking troll y se ve en el troll-o-metro del aviso de partida. |
-| `levels.troll`+ | 🤡 **Una línea corta en `GENERAL_CHANNEL_ID`**, etiquetando al jugador, con la anécdota: *"¡Chica trolleada! @jugador nos tiraban la base y estaba farmeando la jungla. (Lee Sin 1/12/2)"*. El detalle (cargos y puntos) va compacto a `TROLL_CHANNEL_ID` (o el de rankings). |
-| `levels.papelon`+ (18) | 💀 Lo mismo, como **"¡Trolleada histórica!"**. |
+| menos de `levels.troll` (8) | Nada aparte; suma al ranking troll y se ve en el troll-o-metro del aviso de partida. |
+| `levels.troll`+ | 🤡 **Trolleada**: en `TROLL_CHANNEL_ID` (o el de rankings), una línea con la anécdota etiquetando al jugador + el detalle compacto. |
+| `levels.papelon`+ (15) | 💀 **Papelón**: además, **una línea corta en `GENERAL_CHANNEL_ID`**: *"¡Trolleada histórica! @jugador nos tiraban la base y estaba farmeando la jungla. Encima, murió 12 veces. (Lee Sin 1/12/2)"*. Solo esto va a #general. |
 
 Solo se avisan partidas recientes (`alert_max_age_hours`, 36 h). Todo se
 ajusta en **`config/trolls.yaml`** sin tocar código; el ranking troll se
@@ -355,15 +370,48 @@ partida), no por el total, así que jugar más no suma: el que la trollea
 fuerte en 2 partidas queda arriba del que jugó 18 y trolleó 2. Para que 1
 partida suelta no decida por azar, el índice se suaviza hacia el promedio
 del grupo (`index.prior_games`) y una sola partida cuenta como mucho
-`index.max_game_points`. Muestra una categoría (😇 Santo → 💀 Leyenda
+`index.max_game_points`. Las partidas que no llegan a trolleada (flojas)
+pesan solo `index.minor_game_weight` (0.3) y las buenas partidas **restan**:
+los puntos de carreada de cada partida bajan el índice troll en
+`index.redemption` (0.5), y al revés en el ranking de carreadas. Muestra una categoría (😇 Santo → 💀 Leyenda
 troll) y la tendencia contra el período anterior. `/trolls-reiniciar`
 (dev) lo pone en cero desde ese momento (se guarda en `TROLLS_STATE_FILE`).
 El job diario postea cómo va la semana si hubo trolleadas y los lunes
 corona al **Troll de la semana**.
 
 Las reglas del timeline usan una consulta más a Riot por partida. Las
-partidas guardadas antes (o analizadas con una versión vieja) se completan
-con `/trolls-recalcular`.
+partidas guardadas antes (o analizadas con una versión vieja) **se
+recalculan solas y en silencio** al arrancar el bot: sin mensajes, sin logs
+visibles y sin avisos; lo único que cambia es la tabla troll.
+`/trolls-recalcular` fuerza lo mismo a mano (responde solo a quien lo pide); con
+`desde_cero: True` reanaliza **todas** las partidas guardadas y la tabla vuelve a
+contar todo el historial (deshace `/trolls-reiniciar`).
+
+## Carreadas ⭐
+
+El mismo sistema que los trolls, pero premiando (`src/bogabot/carries/rules.py`,
+configurable en **`config/carries.yaml`**). Criterio: una carreada es
+**impacto relativo a tu equipo**, no un KDA lindo en una partida fácil (el
+viejo "ganó + KDA ≥ 5" del ranking general contaba cualquier stomp).
+
+- **Jugadas fuertes:** pentakill, % enorme del daño del equipo, muchas kills
+  para lo que duró la partida *y* buena parte de las del equipo, racha
+  legendaria, no morir nunca estando en las peleas, remontada siendo clave,
+  robar Barón/dragón, muralla (tanque que absorbe y está en todas),
+  habilitador (support en casi todas las kills), ganar la Arena.
+- **Jugadas menores** (con tope de 4 pts entre todas): KDA limpio, KP alta,
+  ganar la línea, duelos 1v1, primera sangre, visión, farm.
+- Perder pesa la mitad; ranked ×1.25.
+
+| Puntos | Qué pasa |
+|---|---|
+| `levels.carry`+ (8) | ⭐ **Carreada**: en `CARRY_CHANNEL_ID` (default: el canal de trolls) una línea con la anécdota + el detalle. |
+| `levels.legendaria`+ (15) | 🌟 **Legendaria**: además, una línea en `GENERAL_CHANNEL_ID`. |
+
+`/carries` ordena por índice (puntos por partida, suavizado, como `/trolls`),
+`/carry-analizar` explica una partida, `/carries-reglas` muestra el
+reglamento y `/carries-reiniciar` (dev) pone la tabla en cero. Los lunes se
+corona al **Carry de la semana**. El aviso de partida suma un ⭐ Carry-o-metro.
 
 ## Cómo se calcula el ranking
 Cada partida se guarda como un registro por jugador, **pero solo si jugaste

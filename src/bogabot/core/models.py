@@ -124,6 +124,14 @@ class MatchRecord:
     rich_deaths: int | None = None  # muertes con mucho oro sin gastar encima
     max_gold_on_death: int | None = None
     timeline_version: int | None = None  # versión del análisis de timeline aplicado (ver mapper)
+    # Para las carreadas (ver bogabot/carries/).
+    penta_kills: int | None = None
+    quadra_kills: int | None = None
+    largest_killing_spree: int | None = None
+    first_blood_kill: bool | None = None
+    solo_kills: int | None = None  # challenges.soloKills (puede faltar)
+    objective_steals: int | None = None  # challenges.epicMonsterSteals (Barón/dragón/heraldo robado)
+    max_gold_deficit: int | None = None  # peor desventaja de oro del equipo (timeline); 0 si nunca perdía
 
     @property
     def dedup_key(self) -> str:
@@ -247,6 +255,13 @@ class MatchRecord:
             rich_deaths=_opt_int(d.get("rich_deaths")),
             max_gold_on_death=_opt_int(d.get("max_gold_on_death")),
             timeline_version=_opt_int(d.get("timeline_version")),
+            penta_kills=_opt_int(d.get("penta_kills")),
+            quadra_kills=_opt_int(d.get("quadra_kills")),
+            largest_killing_spree=_opt_int(d.get("largest_killing_spree")),
+            first_blood_kill=_opt_bool(d.get("first_blood_kill")),
+            solo_kills=_opt_int(d.get("solo_kills")),
+            objective_steals=_opt_int(d.get("objective_steals")),
+            max_gold_deficit=_opt_int(d.get("max_gold_deficit")),
         )
 
 
@@ -258,6 +273,8 @@ _OPTIONAL_RECORD_FIELDS = (
     "items_sold", "deaths_to_lane_opponent", "gold_diff_15",
     "base_absent", "base_absent_farming", "throw_deaths", "throw_objective",
     "afk_minutes", "rich_deaths", "max_gold_on_death", "timeline_version",
+    "penta_kills", "quadra_kills", "largest_killing_spree", "first_blood_kill", "solo_kills",
+    "objective_steals", "max_gold_deficit",
 )
 
 
@@ -426,6 +443,7 @@ class TrollVerdict:
     level: TrollLevel
     ranked_bonus: bool = False
     carried: bool = False  # ganó igual: el equipo lo llevó de mochila
+    capped_points: int = 0  # puntos de cargos menores que no sumaron (tope)
 
     @property
     def is_clean(self) -> bool:
@@ -450,7 +468,7 @@ class TrollStanding:
     # mucho no suma por sí solo, el que la trollea fuerte en 2 partidas queda
     # arriba del que jugó 18 y trolleó 2.
     index: float = 0.0
-    index_points: float = 0.0  # suma de puntos con el tope por partida aplicado
+    index_points: float = 0.0  # suma de lo que aporta cada partida al índice (ver game_index_points)
     previous_index: float | None = None  # índice del período anterior (tendencia)
 
     @property

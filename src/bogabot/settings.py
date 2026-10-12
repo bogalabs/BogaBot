@@ -94,6 +94,7 @@ class Settings:
     match_poll_interval_minutes: int
     match_notify_max_age_minutes: int  # partidas más viejas se guardan pero no se avisan
     troll_channel_id: int | None  # alertas troll; si falta, van a RANKING_CHANNEL_ID
+    carry_channel_id: int | None  # carreadas; si falta, van al canal de trolls
     # Riot
     riot_api_key: str
     riot_platform: str
@@ -105,6 +106,8 @@ class Settings:
     scoring_config_path: str
     trolls_config_path: str
     trolls_state_file: str  # desde cuándo cuenta el ranking troll (/trolls-reiniciar)
+    carries_config_path: str
+    carries_state_file: str  # desde cuándo cuenta el ranking carry (/carries-reiniciar)
     # Tiempo / scheduler
     timezone: str
     daily_post_hour: int
@@ -186,6 +189,7 @@ class Settings:
             match_poll_interval_minutes=poll_minutes,
             match_notify_max_age_minutes=notify_max_age,
             troll_channel_id=_optional_int("TROLL_CHANNEL_ID"),
+            carry_channel_id=_optional_int("CARRY_CHANNEL_ID"),
             riot_api_key=_require("RIOT_API_KEY"),
             riot_platform=os.getenv("RIOT_PLATFORM", "la2"),
             riot_region=os.getenv("RIOT_REGION", "americas"),
@@ -195,6 +199,8 @@ class Settings:
             scoring_config_path=os.getenv("SCORING_CONFIG_PATH", "config/scoring.yaml"),
             trolls_config_path=os.getenv("TROLLS_CONFIG_PATH", "config/trolls.yaml"),
             trolls_state_file=os.getenv("TROLLS_STATE_FILE", "data/trolls_state.json"),
+            carries_config_path=os.getenv("CARRIES_CONFIG_PATH", "config/carries.yaml"),
+            carries_state_file=os.getenv("CARRIES_STATE_FILE", "data/carries_state.json"),
             timezone=os.getenv("TIMEZONE", "America/Argentina/Buenos_Aires"),
             daily_post_hour=hour,
             daily_post_minute=minute,

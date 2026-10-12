@@ -20,6 +20,7 @@ from bogabot.core.models import MatchRecord, TrollLevel  # noqa: E402
 from bogabot.core.timeutils import start_of_week  # noqa: E402
 from bogabot.modules.lol.trolls import TrollService  # noqa: E402
 from bogabot.storage.memory import InMemoryStorage  # noqa: E402
+from bogabot.carries.rules import CARRY_CATALOG  # noqa: E402
 from bogabot.trolls.detector import TrollDetector  # noqa: E402
 from bogabot.trolls.rules import RULES  # noqa: E402
 from bogabot.trolls.schema import TrollConfig, TrollConfigError, load_troll_config  # noqa: E402
@@ -60,8 +61,10 @@ class TestTrollRules(unittest.TestCase):
         feeder = next(f for f in v.flags if f.code == "feeder")
         self.assertEqual(feeder.points, 4)  # 3 + 1 por las 2 muertes de más
         self.assertEqual(v.points, 6)
-        self.assertEqual(v.level, TrollLevel.TROLL)
+        self.assertEqual(v.level, TrollLevel.NONE)  # feedear un poco sin nada más: no es trolleada
         self.assertEqual(v.flags[0].code, "feeder")  # ordenados por puntos
+        heavy = _detector().evaluate(record(kills=1, deaths=14, assists=2, deaths_before_10=4))
+        self.assertEqual(heavy.level, TrollLevel.TROLL)
         self.assertIn("tragic_kda", _codes(record(kills=1, deaths=7, assists=1)))
 
     def test_ranked_multiplier_rounds_half_up(self):
@@ -97,7 +100,7 @@ class TestTrollRules(unittest.TestCase):
         self.assertIn("ghost", codes)
         self.assertNotIn("low_kp", codes)
         self.assertNotIn("pacifist", codes)
-        v = _detector().evaluate(record(kills=0, deaths=6, assists=0))
+        v = _detector().evaluate(record(kills=0, deaths=6, assists=0, damage_to_champions=2000))
         self.assertGreaterEqual(v.level, TrollLevel.TROLL)
 
     def test_ghost_needs_a_real_game(self):
@@ -198,12 +201,31 @@ class TestTrollRules(unittest.TestCase):
 
     def test_base_absent_farming_weighs_more(self):
         flag = lambda **kw: next(f for f in _detector().evaluate(record(**kw)).flags)  # noqa: E731
-        self.assertEqual(flag(base_absent=2, base_absent_farming="jungla").points, 6)
-        self.assertEqual(flag(base_absent=2).points, 4)
-        # "Nos tiraban la base y estaba farmeando" alcanza sola para el aviso a #general.
+        self.assertEqual(flag(base_absent=2, base_absent_farming="jungla").points, 8)
+        self.assertEqual(flag(base_absent=2).points, 5)
+        # "Nos tiraban la base y estaba farmeando" alcanza sola para ser trolleada.
         self.assertEqual(_detector().evaluate(record(base_absent=2, base_absent_farming="jungla")).level,
                          TrollLevel.TROLL)
         self.assertEqual(_detector().evaluate(record(afk_minutes=3)).level, TrollLevel.TROLL)
+
+    def test_a_bad_game_is_not_a_trolleada(self):
+        # Muchos cargos menores juntos (línea perdida, muertes tempranas, poco
+        # daño, poca KP, FF...) no llegan a trolleada: tienen tope.
+        v = _detector().evaluate(record(
+            queue_id=440, game_ended_in_surrender=True, game_duration_seconds=17 * 60, kills=1, deaths=7,
+            assists=1, team_kills=8, enemy_kills=30, deaths_before_10=3, gold_diff_15=-2600,
+            gave_first_blood=True, first_death_minute=4, damage_to_champions=5000))
+        self.assertGreaterEqual(len(v.flags), 5)
+        self.assertEqual(v.base_points, TrollConfig.default().weak_points_cap)
+        self.assertGreater(v.capped_points, 0)
+        self.assertEqual(v.level, TrollLevel.NONE)
+
+    def test_papelon_needs_strong_signals(self):
+        inting = _detector().evaluate(record(kills=0, deaths=18, assists=1, items_sold=6, deaths_before_10=4))
+        self.assertEqual(inting.level, TrollLevel.PAPELON)
+        afk_game = _detector().evaluate(record(kills=0, deaths=6, assists=0, afk_minutes=20,
+                                               damage_to_champions=800))
+        self.assertEqual(afk_game.level, TrollLevel.PAPELON)
 
     def test_every_rule_has_points_and_profiles(self):
         for code, spec in RULES.items():
@@ -254,6 +276,8 @@ class TestTrollConfig(unittest.TestCase):
             self._load("index: {prior_game: 2}\n")
         with self.assertRaises(TrollConfigError):
             self._load("index: {max_game_points: 0}\n")
+        with self.assertRaises(TrollConfigError):
+            self._load("index: {minor_game_weight: 2}\n")
 
     def test_index_config(self):
         cfg = self._load("index: {prior_games: 0, max_game_points: 15}\n")
@@ -291,7 +315,7 @@ class TestTrollService(unittest.TestCase):
         self.assertEqual([s.display_name for s in rows], ["Troll", "Medio", "Santo"])
         troll = rows[0]
         self.assertEqual((troll.rank, troll.games), (1, 3))
-        self.assertEqual(troll.troll_games, 2)
+        self.assertEqual(troll.troll_games, 1)  # LA2_1 (1/12/2 sin más) ya no es trolleada
         self.assertEqual(troll.papelones, 1)
         self.assertEqual(troll.worst.record.match_id, "LA2_3")
         self.assertEqual(rows[2].points, 0)
@@ -335,6 +359,44 @@ class TestTrollService(unittest.TestCase):
         settings = SimpleNamespace(timezone=_TZ, general_channel_id=999)
         return TrollService(self.store, TrollDetector(cfg), settings)  # type: ignore[arg-type]
 
+    def test_frequent_player_with_bad_games_vs_rare_constant_troll(self):
+        # peponullo juega mucho: 3 trolleadas, muchas partidas flojas en ranked
+        # y varias buenas. mcjhonson juega poco y trollea siempre: va primero.
+        trolleada = dict(kills=1, deaths=14, assists=2, deaths_before_10=4, team_kills=25)
+        floja = dict(queue_id=440, kills=2, deaths=8, assists=3, team_kills=25, damage_to_champions=9000,
+                     deaths_before_10=3, gold_diff_15=-2700)
+        buena = dict(win=True, kills=12, deaths=2, assists=8, team_kills=30, damage_to_champions=37000)
+        games = [trolleada] * 3 + [floja] * 20 + [buena] * 5
+        for i, g in enumerate(games):
+            self._save(match_id=f"LA2_P{i}", discord_id=1, game_name="peponullo",
+                       game_creation=self.week_start + timedelta(minutes=10 + i), **g)
+        for i in range(2):
+            self._save(match_id=f"LA2_M{i}", discord_id=2, game_name="mcjhonson",
+                       game_creation=self.week_start + timedelta(minutes=10 + i), **trolleada)
+        self.service.set_redeemer(TrollDetector(TrollConfig.default(CARRY_CATALOG)))
+        rows = asyncio.run(self.service.standings("week"))
+        self.assertEqual([s.display_name for s in rows], ["mcjhonson", "peponullo"])
+        self.assertGreater(rows[0].index, 3 * rows[1].index)
+
+    def test_good_games_lower_the_troll_index(self):
+        trolleada = dict(kills=1, deaths=14, assists=2, deaths_before_10=4, team_kills=25)
+        buena = dict(win=True, kills=12, deaths=2, assists=8, team_kills=30, damage_to_champions=37000)
+        self._save(match_id="LA2_A0", discord_id=1, game_name="A", **trolleada)
+        self._save(match_id="LA2_A1", discord_id=1, game_name="A", win=True)
+        self._save(match_id="LA2_B0", discord_id=2, game_name="B", **trolleada)
+        self._save(match_id="LA2_B1", discord_id=2, game_name="B", **buena)
+        self.service.set_redeemer(TrollDetector(TrollConfig.default(CARRY_CATALOG)))
+        rows = {s.display_name: s for s in asyncio.run(self.service.standings("week"))}
+        self.assertLess(rows["B"].index, rows["A"].index)  # la carreada de B le bajó el índice
+        buena_v = self.service.evaluate(record(**buena))
+        self.assertLess(self.service.game_index_points(buena_v), 0)
+
+    def test_minor_games_weigh_less(self):
+        floja = self.service.evaluate(record(queue_id=440, kills=2, deaths=8, assists=3, team_kills=25,
+                                             damage_to_champions=9000, deaths_before_10=3, gold_diff_15=-2700))
+        self.assertEqual(floja.level, TrollLevel.NONE)
+        self.assertAlmostEqual(self.service.game_index_points(floja), floja.points * 0.3)
+
     def test_single_lucky_game_does_not_crown_you(self):
         # "Suerte": 1 partida con alerta justa. "Constante": 6 partidas, todas feas.
         self._save(match_id="LA2_S0", discord_id=1, game_name="Suerte", kills=1, deaths=12, assists=2)
@@ -372,7 +434,8 @@ class TestTrollService(unittest.TestCase):
         self.assertEqual(self.service.trend(rows["Nuevo"]), "🆕")
         self.assertEqual(self.service.tier(0), "😇 Santo")
         self.assertEqual(self.service.tier(2), "😬 Sospechoso")
-        self.assertEqual(self.service.tier(6), "💀 Leyenda troll")
+        self.assertEqual(self.service.tier(6), "🤡 Troll")
+        self.assertEqual(self.service.tier(8), "💀 Leyenda troll")
 
     def test_reset_ranking_starts_from_zero_and_persists(self):
         self._save(match_id="LA2_OLD", discord_id=1, game_name="Viejo", kills=1, deaths=15, assists=2,
@@ -390,6 +453,13 @@ class TestTrollService(unittest.TestCase):
         again = TrollService(self.store, _detector(), settings, state_file=str(state))  # type: ignore[arg-type]
         self.assertEqual(again.reset_at, service.reset_at)
         self.assertIn("Cuenta desde", again.build_standings_embed([], "week").footer.text)
+        # Deshacer el reinicio (recálculo de 0): vuelve a contar todo el historial.
+        asyncio.run(again.clear_reset())
+        self.assertIsNone(again.reset_at)
+        names = [s.display_name for s in asyncio.run(again.standings("all"))]
+        self.assertEqual(sorted(names), ["Nuevo", "Viejo"])
+        third = TrollService(self.store, _detector(), settings, state_file=str(state))  # type: ignore[arg-type]
+        self.assertIsNone(third.reset_at)
 
     def test_is_fresh(self):
         now = datetime.now(timezone.utc)

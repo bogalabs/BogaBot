@@ -85,6 +85,10 @@ class RuleSpec:
     # Cargo "de equipo" (FF, barrida): solo suma si el jugador ya tiene algún
     # cargo propio. Si jugó bien, que el equipo se rinda no es culpa suya.
     aggravating: bool = False
+    # Cargo "menor": mal rendimiento, no trolleada en sí (poca KP, línea
+    # perdida, visión...). Entre todos suman como mucho `weak_points_cap`:
+    # una partida floja no llega a trolleada solo por acumularlos.
+    weak: bool = False
 
 
 def _pct(value: float) -> str:
@@ -335,6 +339,7 @@ RULES: dict[str, RuleSpec] = {
             _ALL_PVP,
             {"points": 2, "max_kda": 0.5, "min_deaths": 5, "min_deaths_aram": 8, "min_deaths_chaos": 8},
             _check_tragic_kda,
+            weak=True,
         ),
         RuleSpec(
             "ghost", "👻", "¿Estaba AFK?",
@@ -349,6 +354,7 @@ RULES: dict[str, RuleSpec] = {
             _RIFT_ONLY,
             {"points": 1, "min_minutes": 20, "max_damage_share": 0.20},
             _check_pacifist,
+            weak=True,
         ),
         RuleSpec(
             "first_blood", "🩸", "Regaló la primera sangre",
@@ -356,6 +362,7 @@ RULES: dict[str, RuleSpec] = {
             _RIFT_ONLY,
             {"points": 1, "max_minute": 5, "early_minute": 3, "early_bonus": 1},
             _check_first_blood,
+            weak=True,
         ),
         RuleSpec(
             "early_deaths", "⏰", "Speedrun de muertes",
@@ -363,6 +370,7 @@ RULES: dict[str, RuleSpec] = {
             _RIFT_ONLY,
             {"points": 2, "min_deaths": 3},
             _check_early_deaths,
+            weak=True,
         ),
         RuleSpec(
             "lane_gap", "🚜", "Le pasaron el trapo en línea",
@@ -370,6 +378,7 @@ RULES: dict[str, RuleSpec] = {
             _RIFT_ONLY,
             {"points": 2, "min_deficit": 2500, "min_deficit_support": 1500},
             _check_lane_gap,
+            weak=True,
         ),
         RuleSpec(
             "lane_delivery", "🎁", "Delivery a domicilio",
@@ -377,6 +386,7 @@ RULES: dict[str, RuleSpec] = {
             _RIFT_ONLY,
             {"points": 2, "min_deaths": 4, "min_share": 0.4},
             _check_lane_delivery,
+            weak=True,
         ),
         RuleSpec(
             "low_damage", "🪶", "Daño de cotillón",
@@ -384,6 +394,7 @@ RULES: dict[str, RuleSpec] = {
             _ALL_PVP,
             {"points": 2, "max_share": 0.10, "tank_share": 0.25, "min_minutes": 15},
             _check_low_damage,
+            weak=True,
         ),
         RuleSpec(
             "low_kp", "🏝️", "Jugando otra partida",
@@ -391,6 +402,7 @@ RULES: dict[str, RuleSpec] = {
             frozenset({RIFT, ARAM}),
             {"points": 2, "max_kp": 0.20, "max_kp_aram": 0.30, "min_team_kills": 10, "min_minutes": 15},
             _check_low_kp,
+            weak=True,
         ),
         RuleSpec(
             "blind", "🙈", "Ciego voluntario",
@@ -399,6 +411,7 @@ RULES: dict[str, RuleSpec] = {
             {"points": 1, "min_per_min": 0.35, "min_per_min_support": 1.0, "min_minutes": 20},
             _check_blind,
             supersedes=frozenset({"no_control_wards"}),
+            weak=True,
         ),
         RuleSpec(
             "no_control_wards", "🧿", "Ni un control ward",
@@ -406,6 +419,7 @@ RULES: dict[str, RuleSpec] = {
             _RIFT_ONLY,
             {"points": 1, "min_minutes": 25, "max_vision_per_min": 0.8},
             _check_no_control_wards,
+            weak=True,
         ),
         RuleSpec(
             "farm_allergy", "🌾", "Alérgico al farm",
@@ -414,6 +428,7 @@ RULES: dict[str, RuleSpec] = {
             {"points": 1, "min_cs_per_min": 4.0, "min_cs_per_min_jungle": 3.5, "min_minutes": 15,
              "max_damage_share": 0.25},
             _check_farm_allergy,
+            weak=True,
         ),
         RuleSpec(
             "tombstone", "⚰️", "Veraneando en la fuente",
@@ -421,6 +436,7 @@ RULES: dict[str, RuleSpec] = {
             _ALL_PVP,
             {"points": 2, "min_share": 0.25, "severe_share": 0.35, "severe_bonus": 1},
             _check_tombstone,
+            weak=True,
         ),
         RuleSpec(
             "team_anchor", "⚓", "Ancla del equipo",
@@ -435,19 +451,20 @@ RULES: dict[str, RuleSpec] = {
             _RIFT_ONLY,
             {"points": 1, "min_deaths": 2},
             _check_executed,
+            weak=True,
         ),
         RuleSpec(
             "item_seller", "💸", "Liquidación total",
             "Vendió una banda de items: señal clásica de inteo.",
             _ALL_PVP,
-            {"points": 4, "min_items": 6},
+            {"points": 5, "min_items": 6},
             _check_item_seller,
         ),
         RuleSpec(
             "base_absent", "🏚️", "Nos tiraban la base",
             "Caía la base mientras él, vivo, estaba lejos y sin tirar la base enemiga (+2 si farmeaba).",
             _RIFT_ONLY,
-            {"points": 4, "min_structures": 2, "farming_bonus": 2},
+            {"points": 5, "min_structures": 2, "farming_bonus": 3},
             _check_base_absent,
         ),
         RuleSpec(
@@ -461,7 +478,7 @@ RULES: dict[str, RuleSpec] = {
             "afk", "💤", "AFK",
             "Varios minutos seguidos quieto, vivo y sin ganar experiencia.",
             frozenset({RIFT, ARAM}),
-            {"points": 6, "min_minutes": 3},
+            {"points": 8, "min_minutes": 3},
             _check_afk,
         ),
         RuleSpec(
@@ -470,6 +487,7 @@ RULES: dict[str, RuleSpec] = {
             _RIFT_ONLY,
             {"points": 1, "min_deaths": 2},
             _check_hoarder,
+            weak=True,
         ),
         RuleSpec(
             "early_ff", "🏳️", "FF al 15",
@@ -478,6 +496,7 @@ RULES: dict[str, RuleSpec] = {
             {"points": 2, "max_minutes": 20},
             _check_early_ff,
             aggravating=True,
+            weak=True,
         ),
         RuleSpec(
             "stomped", "🧹", "Barrida histórica",
@@ -486,6 +505,7 @@ RULES: dict[str, RuleSpec] = {
             {"points": 1, "min_gap": 20, "min_gap_aram": 25, "min_gap_chaos": 30},
             _check_stomped,
             aggravating=True,
+            weak=True,
         ),
         RuleSpec(
             "pinger", "❓", "Tóxico del '?'",
@@ -493,6 +513,7 @@ RULES: dict[str, RuleSpec] = {
             _ALL_PVP,
             {"points": 1, "min_pings": 15},
             _check_pinger,
+            weak=True,
         ),
         RuleSpec(
             "arena_last", "🥄", "Cuchara de madera",
@@ -500,6 +521,7 @@ RULES: dict[str, RuleSpec] = {
             frozenset({ARENA}),
             {"points": 2, "min_placement": 8},
             _check_arena_last,
+            weak=True,
         ),
     )
 }

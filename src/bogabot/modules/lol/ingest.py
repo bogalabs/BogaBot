@@ -222,7 +222,7 @@ class IngestService:
             self._match_cache.put(match_id, data)
         return data
 
-    async def _fetch_timeline(self, match_id: str) -> dict | None:
+    async def _fetch_timeline(self, match_id: str, quiet: bool = False) -> dict | None:
         """Timeline de la partida (cacheado). Devuelve None si Riot no lo tiene
         (404 u otro error del lado de Riot): la partida se guarda igual, sin
         esos datos. Deja pasar `RiotAuthError` y `RiotUnavailableError` para
@@ -235,7 +235,8 @@ class IngestService:
         except (RiotAuthError, RiotUnavailableError):
             raise
         except RiotApiError as exc:
-            log.warning("No pude traer el timeline de %s (%s); sigo sin esos datos.", match_id, exc)
+            log.log(logging.DEBUG if quiet else logging.WARNING,
+                    "No pude traer el timeline de %s (%s); sigo sin esos datos.", match_id, exc)
             return None
         self._timeline_cache.put(match_id, timeline)
         return timeline
@@ -284,29 +285,36 @@ class IngestService:
             return None
         return map_match_summary(data, puuid_to_discord)
 
-    async def pending_enrichment(self) -> list[MatchRecord]:
+    async def pending_enrichment(self, everything: bool = False) -> list[MatchRecord]:
         """Partidas guardadas sin stats extendidas o con el timeline sin
         analizar (o analizado por una versión anterior, sin las situaciones
-        nuevas)."""
+        nuevas). Con `everything=True`, todas (recálculo de 0)."""
         return sorted(
             (r for r in await self._matches.get_all_matches()
-             if not r.has_extended_stats or (r.timeline_version or 0) < TIMELINE_VERSION),
+             if everything or not r.has_extended_stats or (r.timeline_version or 0) < TIMELINE_VERSION),
             key=lambda r: r.match_id,  # las de una misma partida seguidas: aprovechan la caché
         )
 
-    async def enrich_stored_matches(self) -> tuple[int, int, int]:
+    async def enrich_stored_matches(self, quiet: bool = False,
+                                    everything: bool = False) -> tuple[int, int, int]:
         """Completa las partidas ya guardadas a las que les faltan las stats
         extendidas o el timeline (las guardadas antes del detector de trolls
         nuevo): las vuelve a pedir a Riot y reescribe el registro. Lo usa
-        `/trolls-recalcular`. Devuelve (actualizadas, sin cambios, fallidas)."""
+        `/trolls-recalcular` y el recálculo automático del scheduler; con
+        `quiet=True` no deja rastro en los logs (solo a nivel DEBUG): el único
+        efecto es que la tabla troll se actualiza. Nunca dispara avisos (no
+        pasa por los listeners). Con `everything=True` reanaliza TODAS las
+        partidas guardadas, aunque ya estén al día (recálculo de 0).
+        Devuelve (actualizadas, sin cambios, fallidas)."""
+        level = logging.DEBUG if quiet else logging.WARNING
         links = {l.discord_id: l for l in await self._links.get_all_links()}
-        pending = await self.pending_enrichment()
+        pending = await self.pending_enrichment(everything)
         updated = unchanged = failed = 0
         for old in pending:
             try:
                 data = await self._fetch_match(old.match_id)
                 try:
-                    timeline = await self._fetch_timeline(old.match_id)
+                    timeline = await self._fetch_timeline(old.match_id, quiet=quiet)
                 except RiotUnavailableError:
                     timeline = None
             except RiotAuthError:
@@ -314,7 +322,7 @@ class IngestService:
                 failed += len(pending) - updated - unchanged - failed
                 break
             except RiotApiError as exc:
-                log.warning("No pude recalcular %s (%s).", old.dedup_key, exc)
+                log.log(level, "No pude recalcular %s (%s).", old.dedup_key, exc)
                 failed += 1
                 continue
             link = links.get(old.discord_id)
@@ -335,12 +343,13 @@ class IngestService:
             try:
                 await self._matches.update_match(record)
             except Exception:  # noqa: BLE001 - un registro no debe frenar al resto
-                log.exception("No pude reescribir %s en el storage.", old.dedup_key)
+                log.log(level, "No pude reescribir %s en el storage.", old.dedup_key, exc_info=True)
                 failed += 1
                 continue
             updated += 1
-        log.info("Recálculo de partidas: %d actualizadas, %d sin cambios, %d fallidas.",
-                 updated, unchanged, failed)
+        log.log(logging.DEBUG if quiet else logging.INFO,
+                "Recálculo de partidas: %d actualizadas, %d sin cambios, %d fallidas.",
+                updated, unchanged, failed)
         return updated, unchanged, failed
 
     def reset_auth_alert(self) -> None:

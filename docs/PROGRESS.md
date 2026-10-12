@@ -131,6 +131,11 @@ _Última actualización: 2026-09-29_
       partida (`index.max_game_points`, default 30). `/trolls` muestra
       categoría (😇 Santo → 💀 Leyenda troll), % de partidas trolleadas y
       tendencia vs. el período anterior — 2026-09-29
+- [x] Índice v3: las partidas flojas (bajo el nivel de aviso) pesan ×0.3
+      (`index.minor_game_weight`) y las carreadas restan ×0.5 del índice
+      troll (`index.redemption`; y las trolleadas restan del de carry).
+      Antes quien jugaba mucho acumulaba por partidas flojas en ranked y
+      quedaba arriba del que trolleaba siempre — 2026-10-01
 
 - [x] Detector de trolls v3 — 2026-09-29
   - Situaciones nuevas del timeline: "nos tiraban la base y estaba
@@ -152,6 +157,26 @@ _Última actualización: 2026-09-29_
       FF y barrida solo como agravantes, base perdida sin contar split push,
       throw solo si lo agarraron solo, ahorrista solo antes del 25.
       `TIMELINE_VERSION` 3 — 2026-09-29
+
+- [x] Trolleada más especial: cargos menores (mal rendimiento) con tope de
+      4 pts, así una partida floja no es trolleada; hace falta una señal
+      fuerte. Niveles 8 (trolleada) y 15 (papelón). **Solo el papelón va a
+      #general**; las trolleadas quedan en el canal de trolls. Recálculo
+      automático y silencioso de partidas viejas al arrancar (sin mensajes
+      ni logs; solo se actualiza la tabla troll) — 2026-09-30
+
+- [x] `/trolls-recalcular desde_cero:True`: reanaliza todas las partidas
+      (aunque ya estuvieran al día) y la tabla troll vuelve a contar todo el
+      historial con los criterios actuales — 2026-10-01
+
+- [x] Carreadas: el mismo sistema que trolls, premiando (`carries/`,
+      `config/carries.yaml`). Impacto relativo al equipo (daño, kills,
+      KP, remontada, robos, pentakill, muralla, habilitador...), jugadas
+      menores con tope, perder ×0.5. `/carries`, `/carry-analizar`,
+      `/carries-reglas`, `/carries-reiniciar`, Carry de la semana y
+      Carry-o-metro. El motor de trolls quedó genérico (`Catalog` +
+      `Flavor`). `TIMELINE_VERSION` 4 (desventaja de oro para remontadas):
+      el recálculo silencioso completa las partidas viejas — 2026-10-01
 
 ## 🚧 En progreso
 - [ ] _(nada activo)_

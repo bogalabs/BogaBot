@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import kill, match_json, timeline_json  # noqa: E402
 
 from bogabot.core.models import MatchRecord  # noqa: E402
-from bogabot.riot.mapper import is_remake, map_match  # noqa: E402
+from bogabot.riot.mapper import TIMELINE_VERSION, is_remake, map_match  # noqa: E402
 from bogabot.storage.discord_channel import MATCH_PREFIX  # noqa: E402
 
 
@@ -254,4 +254,4 @@ class TestTimelineSituations(unittest.TestCase):
         self.assertEqual(r.afk_minutes, 5)
         moving = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline({}, []))
         self.assertEqual(moving.afk_minutes, 0)
-        self.assertEqual(moving.timeline_version, 3)
+        self.assertEqual(moving.timeline_version, TIMELINE_VERSION)
