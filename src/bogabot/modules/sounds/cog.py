@@ -4,9 +4,12 @@ Formas de disparo:
   - Manual: /sonido [nombre]  (en el canal de voz de quien lo pide).
   - Forzado (solo devs): /sonido-forzar [nombre] [canal].
   - Por evento: listener de IngestService. Cuando termina (recién) una
-    partida del grupo con papelón o victoria épica, suena SOUNDS_EVENT_PAPELON
-    / SOUNDS_EVENT_VICTORY en el canal de voz donde están los que la jugaron.
-    Nada de azar: solo suena donde está la gente de esa partida.
+    partida del grupo con trolleada o carreada (lo mismo que se avisa en
+    #log-partidas), el bot entra al canal de voz donde están los que la
+    jugaron y dice una frase sobre quién fue (TTS, SOUNDS_EVENT_VOICE; ver
+    voice_lines.py). Antes de la frase puede sonar SOUNDS_EVENT_PAPELON /
+    SOUNDS_EVENT_VICTORY si están configurados. Nada de azar: solo suena
+    donde está la gente de esa partida.
   - Random: random_job corre cada SOUNDS_CHECK_INTERVAL_MINUTES; dentro del
     horario activo, si hay canales con gente y pasó el cooldown, tira un dado
     (SOUNDS_CHANCE) y, si sale, elige un canal ocupado y un audio al azar.
@@ -42,6 +45,8 @@ from discord.ext import commands, tasks
 
 from bogabot.core.models import MatchRecord, TrollLevel
 from bogabot.core.timeutils import get_tz
+from bogabot.modules.sounds.tts import synthesize
+from bogabot.modules.sounds.voice_lines import CARRY, build_line, pick_spoken_verdict, spoken_name
 
 if TYPE_CHECKING:
     from bogabot.bot import BogaBot
@@ -85,6 +90,9 @@ class SoundsCog(commands.Cog):
         # Una sola reproducción a la vez en todo el bot.
         self._play_lock = asyncio.Lock()
         self._last_random_play: dt.datetime | None = None
+        # Sonidos de evento en curso: corren aparte para no frenar la ingesta
+        # (y los avisos de texto) mientras el bot habla.
+        self._event_tasks: set[asyncio.Task] = set()
         # Sonidos canjeados: nombre -> {"owner_id": int, "expires_at": iso}.
         meta_path = self.sounds_dir / _META_FILE
         self._meta: dict[str, dict] = (
@@ -95,7 +103,7 @@ class SoundsCog(commands.Cog):
     # ------------------------------------------------------------------ #
     def _sound_files(self) -> list[Path]:
         return sorted(p for p in self.sounds_dir.iterdir()
-                      if p.is_file() and p.suffix.lower() in _ALLOWED_SUFFIXES)
+                      if p.is_file() and not p.name.startswith(".") and p.suffix.lower() in _ALLOWED_SUFFIXES)
 
     def _find_sound(self, name: str) -> Path | None:
         name = name.lower().strip()
@@ -173,8 +181,8 @@ class SoundsCog(commands.Cog):
         # Rango que cruza medianoche, ej. 20 -> 3.
         return now.hour >= start or now.hour < end
 
-    async def _play_in(self, channel: discord.VoiceChannel, sound: Path) -> None:
-        """Entra, reproduce `sound`, se va. Serializado por `_play_lock`."""
+    async def _play_in(self, channel: discord.VoiceChannel, *sounds: Path) -> None:
+        """Entra, reproduce `sounds` en orden, se va. Serializado por `_play_lock`."""
         async with self._play_lock:
             guild = channel.guild
             if guild.voice_client is not None:
@@ -182,23 +190,24 @@ class SoundsCog(commands.Cog):
                 await guild.voice_client.disconnect(force=True)
 
             vc = await channel.connect(timeout=15, self_deaf=True)
-            done = asyncio.Event()
-
-            def _after(err: Exception | None) -> None:
-                if err:
-                    log.warning("Error reproduciendo %s: %s", sound.name, err)
-                self.bot.loop.call_soon_threadsafe(done.set)
-
             try:
-                vc.play(discord.FFmpegPCMAudio(str(sound)), after=_after)
-                try:
-                    await asyncio.wait_for(done.wait(), timeout=_MAX_PLAY_SECONDS)
-                except asyncio.TimeoutError:
-                    log.warning("Sonido %s superó %ss, lo corto.", sound.name, _MAX_PLAY_SECONDS)
-                    vc.stop()
+                for sound in sounds:
+                    done = asyncio.Event()
+
+                    def _after(err: Exception | None, sound: Path = sound, done: asyncio.Event = done) -> None:
+                        if err:
+                            log.warning("Error reproduciendo %s: %s", sound.name, err)
+                        self.bot.loop.call_soon_threadsafe(done.set)
+
+                    vc.play(discord.FFmpegPCMAudio(str(sound)), after=_after)
+                    try:
+                        await asyncio.wait_for(done.wait(), timeout=_MAX_PLAY_SECONDS)
+                    except asyncio.TimeoutError:
+                        log.warning("Sonido %s superó %ss, lo corto.", sound.name, _MAX_PLAY_SECONDS)
+                        vc.stop()
             finally:
                 await vc.disconnect(force=True)
-            log.info("Sonido '%s' reproducido en #%s.", sound.stem, channel.name)
+            log.info("Sonido %s reproducido en #%s.", ", ".join(f"'{p.stem}'" for p in sounds), channel.name)
 
     # ------------------------------------------------------------------ #
     # Soundboard del server (canjes)
@@ -261,7 +270,7 @@ class SoundsCog(commands.Cog):
 
     async def _on_new_matches(self, records: list[MatchRecord]) -> None:
         s = self.bot.settings
-        if not (s.sounds_event_papelon or s.sounds_event_victory):
+        if not (s.sounds_event_voice or s.sounds_event_papelon or s.sounds_event_victory):
             return
         now = dt.datetime.now(dt.timezone.utc)
         max_age = dt.timedelta(minutes=s.match_notify_max_age_minutes)
@@ -271,22 +280,57 @@ class SoundsCog(commands.Cog):
         for match_id, match_records in by_match.items():
             if now - match_records[0].game_end > max_age:
                 continue  # partida vieja (ingesta forzada, bot caído): no suena
-            levels = [self.bot.trolls.evaluate(r).level for r in match_records]
-            name = pick_event_sound(match_records, levels, s.sounds_event_papelon, s.sounds_event_victory)
-            if name is None:
-                continue
-            sound = self._find_sound(name)
-            if sound is None:
-                log.warning("El sonido de evento '%s' no existe (ver /sonidos).", name)
-                continue
             channel = self._voice_channel_of({r.discord_id for r in match_records})
-            if channel is None or self._play_lock.locked():
-                continue
-            try:
-                await self._play_in(channel, sound)
-                log.info("Sonido de evento '%s' por %s en #%s.", name, match_id, channel.name)
-            except Exception:  # noqa: BLE001 - un sonido no debe romper la ingesta
-                log.exception("Falló el sonido de evento en #%s.", channel.name)
+            if channel is None:
+                continue  # nadie de la partida está en voz
+            task = asyncio.create_task(self._play_event(channel, match_id, match_records))
+            self._event_tasks.add(task)
+            task.add_done_callback(self._event_done)
+
+    def _event_done(self, task: asyncio.Task) -> None:
+        self._event_tasks.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            log.error("Falló el sonido de evento.", exc_info=task.exception())
+
+    async def _play_event(self, channel: discord.VoiceChannel, match_id: str,
+                          match_records: list[MatchRecord]) -> None:
+        """Sonido (opcional) + frase hablada de una partida recién terminada."""
+        s = self.bot.settings
+        trolls = [v for v in (self.bot.trolls.evaluate(r) for r in match_records)
+                  if not await self.bot.trolls.is_silenced(v)]
+        carries = [self.bot.carries.evaluate(r) for r in match_records]
+        spoken = pick_spoken_verdict(trolls, carries)
+
+        to_play: list[Path] = []
+        if spoken is not None:
+            clip_name = s.sounds_event_victory if spoken.kind == CARRY else s.sounds_event_papelon
+        else:  # sin trolleada ni carreada: igual puede ser una victoria épica
+            clip_name = pick_event_sound(match_records, [v.level for v in trolls], "", s.sounds_event_victory)
+        if clip_name:
+            clip = self._find_sound(clip_name)
+            if clip is None:
+                log.warning("El sonido de evento '%s' no existe (ver /sonidos).", clip_name)
+            else:
+                to_play.append(clip)
+
+        voice_file: Path | None = None
+        if spoken is not None and s.sounds_event_voice:
+            record = spoken.verdict.record
+            member = channel.guild.get_member(record.discord_id)
+            name = spoken_name(member.display_name if member else record.game_name)
+            text = build_line(spoken, name)
+            voice_file = await synthesize(text, self.sounds_dir / f".tts-{match_id}.mp3",
+                                          s.sounds_tts_lang, s.sounds_tts_tld)
+            if voice_file is not None:
+                to_play.append(voice_file)
+                log.info("Frase de evento (%s): %s", match_id, text)
+
+        try:
+            if to_play:
+                await self._play_in(channel, *to_play)
+        finally:
+            if voice_file is not None:
+                voice_file.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------ #
     # Loops: random y vencimiento de canjes

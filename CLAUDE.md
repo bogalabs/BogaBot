@@ -259,10 +259,14 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   de voz) molestaba al grupo, así que `SOUNDS_CHANCE` vale 0 por defecto. En
   su lugar: `/canjear-sonido` sube el audio al **soundboard del server**
   (mp3/ogg ≤ 5.2 s y 512 KB; se convierte con ffmpeg si hace falta) y
-  `expire_job` lo saca al vencer; y los sonidos por evento
-  (`SOUNDS_EVENT_PAPELON`/`SOUNDS_EVENT_VICTORY`) solo suenan en el canal
-  de voz de los que jugaron una partida **recién** terminada
-  (`MATCH_NOTIFY_MAX_AGE_MINUTES`).
+  `expire_job` lo saca al vencer; y los sonidos por evento solo suenan en
+  el canal de voz de los que jugaron una partida **recién** terminada
+  (`MATCH_NOTIFY_MAX_AGE_MINUTES`): si hubo trolleada o carreada (nivel de
+  aviso), el bot dice una frase sobre quién fue (TTS con gTTS,
+  `modules/sounds/voice_lines.py` + `tts.py`; `SOUNDS_EVENT_VOICE`,
+  `SOUNDS_TTS_LANG`/`SOUNDS_TTS_TLD`), precedida opcionalmente por
+  `SOUNDS_EVENT_PAPELON`/`SOUNDS_EVENT_VICTORY`. Corre en una tarea aparte
+  para no frenar los avisos de texto. edge-tts daba 403 desde el server.
 - **Avisos solo de lo recién terminado:** el aviso en `MATCH_NOTIFY_CHANNEL_ID`
   saltea partidas que terminaron hace más de `MATCH_NOTIFY_MAX_AGE_MINUTES`
   (default 120). Sin esto, volver de una caída o una ingesta forzada de

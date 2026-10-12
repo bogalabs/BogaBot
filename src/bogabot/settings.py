@@ -131,6 +131,11 @@ class Settings:
     # de voz de los que jugaron. "" = desactivado.
     sounds_event_papelon: str
     sounds_event_victory: str
+    # Frase hablada (TTS) sobre quién trolleó/carreó, en el canal de voz de
+    # los que jugaron. gTTS: idioma y dominio de Google (acento).
+    sounds_event_voice: bool
+    sounds_tts_lang: str
+    sounds_tts_tld: str
     # Puntos (canjeables por sonidos temporales)
     points_role_id: int | None
     points_file: str
@@ -250,6 +255,9 @@ class Settings:
             sound_redeem_max_active=int(os.getenv("SOUND_REDEEM_MAX_ACTIVE", "1")),
             sounds_event_papelon=os.getenv("SOUNDS_EVENT_PAPELON", "").strip(),
             sounds_event_victory=os.getenv("SOUNDS_EVENT_VICTORY", "").strip(),
+            sounds_event_voice=os.getenv("SOUNDS_EVENT_VOICE", "true").strip().lower() in ("1", "true", "yes"),
+            sounds_tts_lang=os.getenv("SOUNDS_TTS_LANG", "es").strip(),
+            sounds_tts_tld=os.getenv("SOUNDS_TTS_TLD", "com.mx").strip(),
             shop_file=os.getenv("SHOP_FILE", "data/shop.json"),
             shop_role_cost=int(os.getenv("SHOP_ROLE_COST", "150")),
             shop_role_days=max(1, int(os.getenv("SHOP_ROLE_DAYS", "7"))),

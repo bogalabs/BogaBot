@@ -3,3 +3,4 @@ aiohttp>=3.9
 python-dotenv>=1.0
 PyYAML>=6.0
 tzdata>=2024.1
+gTTS>=2.5
