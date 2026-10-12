@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import random
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -113,6 +114,12 @@ TROLL_FLAVOR = Flavor(
 )
 
 
+log = logging.getLogger(__name__)
+
+# Filtro de alertas: recibe el veredicto y devuelve True para NO avisarlo.
+AlertFilter = Callable[[TrollVerdict], Awaitable[bool]]
+
+
 def _rng(record: MatchRecord) -> random.Random:
     return random.Random(record.dedup_key)
 
@@ -136,6 +143,9 @@ class TrollService:
         # guarda en un JSON chiquito (TROLLS_STATE_FILE) para sobrevivir reinicios.
         self._state_path = Path(state_file) if state_file else None
         self._reset_at = self._load_reset()
+        # Otros módulos (ej. la inmunidad de la tienda de puntos) pueden
+        # silenciar una alerta sin que LoL sepa de ellos.
+        self._alert_filters: list[AlertFilter] = []
 
     def _load_reset(self) -> datetime | None:
         if self._state_path is None or not self._state_path.exists():
@@ -192,6 +202,24 @@ class TrollService:
             other = self._redeemer.evaluate(verdict.record).points
             own -= c.index_redemption * min(other, c.index_max_game_points)
         return own
+
+    def add_alert_filter(self, callback: AlertFilter) -> None:
+        self._alert_filters.append(callback)
+
+    def remove_alert_filter(self, callback: AlertFilter) -> None:
+        if callback in self._alert_filters:
+            self._alert_filters.remove(callback)
+
+    async def is_silenced(self, verdict: TrollVerdict) -> bool:
+        """True si algún filtro pide no avisar esta alerta (sigue sumando al
+        ranking: solo se saltea el aviso)."""
+        for callback in list(self._alert_filters):
+            try:
+                if await callback(verdict):
+                    return True
+            except Exception:  # noqa: BLE001 - un filtro roto no debe tapar alertas
+                log.exception("Error en un filtro de alertas troll.")
+        return False
 
     @property
     def config(self) -> TrollConfig:

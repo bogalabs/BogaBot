@@ -127,6 +127,10 @@ class Settings:
     sounds_check_interval_minutes: int
     sounds_active_from: int
     sounds_active_to: int
+    # Sonidos por evento: nombre del sonido (de /sonidos) que suena en el canal
+    # de voz de los que jugaron. "" = desactivado.
+    sounds_event_papelon: str
+    sounds_event_victory: str
     # Puntos (canjeables por sonidos temporales)
     points_role_id: int | None
     points_file: str
@@ -139,6 +143,23 @@ class Settings:
     sound_redeem_days: int
     sound_redeem_max_seconds: int
     sound_redeem_max_active: int
+    # Tienda de canjes de texto (módulo de puntos)
+    shop_file: str
+    shop_role_cost: int
+    shop_role_days: int
+    shop_shield_cost: int
+    shop_nick_cost: int
+    shop_nick_hours: int
+    shop_pin_cost: int
+    shop_pin_hours: int
+    # Predicciones con puntos sobre partidas en vivo
+    predictions_enabled: bool
+    predictions_file: str
+    prediction_channel_id: int | None  # si falta, van a MATCH_NOTIFY_CHANNEL_ID
+    prediction_poll_minutes: int
+    prediction_close_minutes: int
+    prediction_min_bet: int
+    prediction_max_bet: int
 
     @classmethod
     def load(cls) -> "Settings":
@@ -165,7 +186,8 @@ class Settings:
         log_channel_level_name = os.getenv("LOG_CHANNEL_LEVEL", "WARNING").upper()
         log_channel_level = getattr(logging, log_channel_level_name, logging.WARNING)
 
-        sounds_chance = float(os.getenv("SOUNDS_CHANCE", "0.15"))
+        # Default 0: el sonido random (entrar sin que nadie lo pida) molestaba.
+        sounds_chance = float(os.getenv("SOUNDS_CHANCE", "0"))
         if not 0.0 <= sounds_chance <= 1.0:
             raise ConfigError("SOUNDS_CHANCE debe estar entre 0 y 1.")
         sounds_active_from = int(os.getenv("SOUNDS_ACTIVE_FROM", "0"))
@@ -224,6 +246,23 @@ class Settings:
             points_lol_win=int(os.getenv("POINTS_LOL_WIN", "5")),
             sound_redeem_cost=int(os.getenv("SOUND_REDEEM_COST", "100")),
             sound_redeem_days=int(os.getenv("SOUND_REDEEM_DAYS", "7")),
-            sound_redeem_max_seconds=int(os.getenv("SOUND_REDEEM_MAX_SECONDS", "8")),
+            sound_redeem_max_seconds=int(os.getenv("SOUND_REDEEM_MAX_SECONDS", "5")),
             sound_redeem_max_active=int(os.getenv("SOUND_REDEEM_MAX_ACTIVE", "1")),
+            sounds_event_papelon=os.getenv("SOUNDS_EVENT_PAPELON", "").strip(),
+            sounds_event_victory=os.getenv("SOUNDS_EVENT_VICTORY", "").strip(),
+            shop_file=os.getenv("SHOP_FILE", "data/shop.json"),
+            shop_role_cost=int(os.getenv("SHOP_ROLE_COST", "150")),
+            shop_role_days=max(1, int(os.getenv("SHOP_ROLE_DAYS", "7"))),
+            shop_shield_cost=int(os.getenv("SHOP_SHIELD_COST", "80")),
+            shop_nick_cost=int(os.getenv("SHOP_NICK_COST", "60")),
+            shop_nick_hours=max(1, int(os.getenv("SHOP_NICK_HOURS", "24"))),
+            shop_pin_cost=int(os.getenv("SHOP_PIN_COST", "40")),
+            shop_pin_hours=max(1, int(os.getenv("SHOP_PIN_HOURS", "24"))),
+            predictions_enabled=os.getenv("PREDICTIONS_ENABLED", "true").strip().lower() in ("1", "true", "yes"),
+            predictions_file=os.getenv("PREDICTIONS_FILE", "data/predictions.json"),
+            prediction_channel_id=_optional_int("PREDICTION_CHANNEL_ID"),
+            prediction_poll_minutes=max(1, int(os.getenv("PREDICTION_POLL_MINUTES", "3"))),
+            prediction_close_minutes=max(1, int(os.getenv("PREDICTION_CLOSE_MINUTES", "8"))),
+            prediction_min_bet=max(1, int(os.getenv("PREDICTION_MIN_BET", "5"))),
+            prediction_max_bet=max(1, int(os.getenv("PREDICTION_MAX_BET", "200"))),
         )

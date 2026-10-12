@@ -256,11 +256,13 @@ class LolScheduler(commands.Cog):
         ]
         fresh = []
         for v in flagged:
-            if trolls.is_fresh(v.record):
-                fresh.append(v)
-            else:
+            if not trolls.is_fresh(v.record):
                 log.info("Partida vieja (%s, %s de %d pts); suma al ranking pero no la aviso.",
                          v.record.dedup_key, trolls.flavor.noun, v.points)
+            elif await trolls.is_silenced(v):
+                log.info("Alerta de %s silenciada (inmunidad).", v.record.dedup_key)
+            else:
+                fresh.append(v)
         if not fresh:
             return
 

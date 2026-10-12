@@ -70,6 +70,9 @@ src/bogabot/
     ├── trolls.py           # TrollService + Flavor: ranking por período + mensajes (troll o carry)
     ├── carries.py          # CARRY_FLAVOR (textos de las carreadas)
     └── scheduler.py        # daily_job + notify_job + listener de ingesta (avisos y alertas troll)
+src/bogabot/modules/sounds/     # /sonido, canje al soundboard, sonidos por evento (random apagado por defecto)
+src/bogabot/modules/points/     # puntos (store + cog) y tienda de canjes (shop.py + shop_store.py)
+src/bogabot/modules/predictions/# predicciones con puntos sobre partidas en vivo (logic.py puro + store + cog)
 config/scoring.yaml         # fórmula del ranking, editable sin tocar código
 config/trolls.yaml          # umbrales/puntos del detector de trolls, editable sin tocar código
 config/carries.yaml         # umbrales/puntos del detector de carreadas
@@ -252,6 +255,31 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   (default el de trolls); solo la legendaria va a #general. Ojo: el
   `PlayerStats.carry_games` del ranking general (gana + KDA ≥ 5) es otro
   criterio, previo, y no se tocó.
+- **Sonidos sin molestar:** el sonido random (el bot entra solo a un canal
+  de voz) molestaba al grupo, así que `SOUNDS_CHANCE` vale 0 por defecto. En
+  su lugar: `/canjear-sonido` sube el audio al **soundboard del server**
+  (mp3/ogg ≤ 5.2 s y 512 KB; se convierte con ffmpeg si hace falta) y
+  `expire_job` lo saca al vencer; y los sonidos por evento
+  (`SOUNDS_EVENT_PAPELON`/`SOUNDS_EVENT_VICTORY`) solo suenan en el canal
+  de voz de los que jugaron una partida **recién** terminada
+  (`MATCH_NOTIFY_MAX_AGE_MINUTES`).
+- **Avisos solo de lo recién terminado:** el aviso en `MATCH_NOTIFY_CHANNEL_ID`
+  saltea partidas que terminaron hace más de `MATCH_NOTIFY_MAX_AGE_MINUTES`
+  (default 120). Sin esto, volver de una caída o una ingesta forzada de
+  partidas anteriores inundaba #log-partidas. `/trolls-recalcular` nunca
+  avisa (solo reescribe el storage).
+- **Tienda de canjes** (`modules/points/shop.py`): rol custom, inmunidad
+  troll, apodo a otro (vetable) y mensaje fijado. Todo temporal, en
+  `SHOP_FILE`, revertido por `expire_job`; si Discord rechaza la acción se
+  reintegran los puntos. La inmunidad se engancha como filtro de
+  `TrollService` (`add_alert_filter`/`is_silenced`): LoL no sabe de puntos.
+- **Predicciones** (`modules/predictions/`): spectator-v5
+  (`RiotClient.get_active_game`) detecta partidas con ≥2 vinculados y abre
+  una predicción con botones `DynamicItem` (custom_id `pred:<gameId>:<a|b>`,
+  sobreviven reinicios). Se resuelve como listener de `IngestService` por
+  `match_id` (`<platformId>_<gameId>`), reparto parimutuel. Sin resolver en
+  3 h (remake) → se cancela y se devuelve todo. Tienda y predicciones solo
+  se cargan si hay `POINTS_ROLE_ID`.
 - **Logging a Discord:** `DiscordLogHandler` (en `core/`) se engancha al
   logger `"bogabot"` (no a `discord.*`, para no capturar el ruido de la
   librería) cuando hay `LOG_USER_ID` o `LOG_CHANNEL_ID`. Solo encola texto

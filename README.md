@@ -96,7 +96,12 @@ orden:
 2. Scopes: `bot` y `applications.commands`.
 3. Bot Permissions: `Send Messages`, `Read Message History`, `Embed Links`,
    `View Channel` y `Manage Roles` (esta última solo si vas a usar
-   `LOL_ROLE_ID`, para que el bot pueda asignarlo automáticamente).
+   `LOL_ROLE_ID`, para que el bot pueda asignarlo automáticamente). Para los
+   módulos de sonidos/puntos sumá `Connect`, `Speak`, `Create Expressions`
+   (soundboard), `Manage Nicknames` (canje de apodo) y `Pin Messages` o
+   `Manage Messages` (canje de mensaje fijado). El rol del bot tiene que
+   quedar **arriba** de los roles que asigna y de la gente a la que le
+   cambia el apodo.
 4. Copiá la URL generada al final de la página, abrila y elegí tu server.
 
 ### 3. Activar el modo desarrollador (para copiar IDs)
@@ -311,6 +316,52 @@ aparte `sshserver` (fuera de este repo).
   también por consola. Son solo logs técnicos: los avisos de partidas van
   aparte, a `MATCH_NOTIFY_CHANNEL_ID`. Pensado para enterarte de errores (Riot
   caído, key vencida, etc.) sin tener que mirar la terminal.
+
+## Sonidos, puntos, tienda y predicciones
+
+Los miembros con `POINTS_ROLE_ID` juntan puntos (tiempo en voz con alguien
+más + partidas de LoL con el grupo) y los gastan en `/tienda`:
+
+- **`/canjear-sonido`**: el audio se sube al **soundboard del server** por
+  `SOUND_REDEEM_DAYS` días (mp3/ogg/wav, hasta 5 s: límite de Discord). Cada
+  uno lo tira cuando quiere desde el botón de soundboard. El bot **ya no
+  entra solo** a tirar sonidos: `SOUNDS_CHANCE` vale 0 por defecto.
+- **`/canjear-rol`**, **`/canjear-inmunidad`** (tu próxima alerta troll no se
+  anuncia, igual suma al ranking), **`/canjear-apodo`** (el afectado lo veta
+  con `/vetar-apodo` y se le devuelve la mitad a quien pagó) y
+  **`/canjear-mensaje`** (fijado en general). Todo vence solo; si la acción
+  falla por permisos, se devuelven los puntos.
+- **Predicciones:** cada `PREDICTION_POLL_MINUTES` el bot le pregunta a Riot
+  (spectator-v5) si hay vinculados jugando. Si hay 2 o más en la misma
+  partida, abre una predicción con botones ("Ganan / Pierden", o "Gana azul /
+  Gana rojo" si el grupo quedó dividido) en `PREDICTION_CHANNEL_ID` (default
+  el canal de avisos). Se apuesta hasta el minuto `PREDICTION_CLOSE_MINUTES`
+  de partida; cuando la ingesta guarda la partida, el pozo se reparte entre
+  los que acertaron según lo que puso cada uno. Los que juegan solo pueden
+  apostar a su equipo. Si la partida no aparece en 3 h (remake), se devuelve
+  todo.
+- **Sonidos por evento:** si seteás `SOUNDS_EVENT_PAPELON` y/o
+  `SOUNDS_EVENT_VICTORY` (nombres de `/sonidos`), cuando termina **recién**
+  una partida con papelón o victoria épica suena ese audio solo en el canal
+  de voz donde están los que la jugaron.
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `POINTS_ROLE_ID` | — | Rol que junta puntos. Sin esto no se cargan puntos, tienda ni predicciones. |
+| `SOUNDS_CHANCE` | `0` | Chance del sonido random (el bot entra solo). 0 = apagado. |
+| `SOUNDS_EVENT_PAPELON` / `SOUNDS_EVENT_VICTORY` | `""` | Sonido por evento (vacío = apagado). |
+| `SOUND_REDEEM_COST` / `SOUND_REDEEM_DAYS` / `SOUND_REDEEM_MAX_SECONDS` | `100` / `7` / `5` | Canje de sonido (tope real 5.2 s por el soundboard). |
+| `SHOP_FILE` | `data/shop.json` | Estado de la tienda (efectos activos e inmunidades). |
+| `SHOP_ROLE_COST` / `SHOP_ROLE_DAYS` | `150` / `7` | Rol custom. |
+| `SHOP_SHIELD_COST` | `80` | Inmunidad troll (una alerta). |
+| `SHOP_NICK_COST` / `SHOP_NICK_HOURS` | `60` / `24` | Apodo a otro. |
+| `SHOP_PIN_COST` / `SHOP_PIN_HOURS` | `40` / `24` | Mensaje fijado en general. |
+| `PREDICTIONS_ENABLED` | `true` | Prende/apaga las predicciones. |
+| `PREDICTIONS_FILE` | `data/predictions.json` | Predicciones abiertas (sobreviven reinicios). |
+| `PREDICTION_CHANNEL_ID` | `MATCH_NOTIFY_CHANNEL_ID` | Dónde se abren. |
+| `PREDICTION_POLL_MINUTES` | `3` | Cada cuánto se buscan partidas en vivo. |
+| `PREDICTION_CLOSE_MINUTES` | `8` | Hasta qué minuto de partida se puede apostar. |
+| `PREDICTION_MIN_BET` / `PREDICTION_MAX_BET` | `5` / `200` | Rango de apuesta. |
 
 ## Detector de trolls 🤡
 

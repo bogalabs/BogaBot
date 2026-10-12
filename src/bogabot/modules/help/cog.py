@@ -70,9 +70,22 @@ class HelpCog(commands.Cog):
         if has_points:
             value = (
                 "`/puntos [usuario]` 🔒 — cuántos puntos tenés y cómo se ganan.\n"
-                "`/puntos-top` — ranking de puntos del server."
+                "`/puntos-top` — ranking de puntos del server.\n"
+                "`/tienda` 🔒 — en qué podés gastarlos."
             )
-            if not can_earn:
+            if can_earn:
+                value += (
+                    f"\n`/canjear-rol <nombre> <color>` 🔒 — rol propio por {s.shop_role_days} días "
+                    f"({s.shop_role_cost} pts).\n"
+                    f"`/canjear-inmunidad` 🔒 — tu próxima trolleada no se anuncia ({s.shop_shield_cost} pts).\n"
+                    f"`/canjear-apodo <usuario> <apodo>` 🔒 — bautizá a alguien por {s.shop_nick_hours} h "
+                    f"({s.shop_nick_cost} pts).\n"
+                    f"`/canjear-mensaje <texto>` 🔒 — tu mensaje fijado en general ({s.shop_pin_cost} pts).\n"
+                    "`/vetar-apodo` 🔒 — sacate el apodo que te pusieron."
+                )
+                if self.bot.get_cog("PredictionsCog") is not None:
+                    value += "\n🔮 *Cuando el grupo arranca una partida, apostá con los botones del canal de partidas.*"
+            else:
                 value += f"\n*(Para juntar puntos necesitás el rol <@&{s.points_role_id}>.)*"
             embed.add_field(name="💰 Puntos", value=value, inline=False)
 
@@ -82,7 +95,7 @@ class HelpCog(commands.Cog):
         ]
         if has_points and can_earn:
             sounds.append(f"`/canjear-sonido <nombre> <audio>` 🔒 — cambiá {s.sound_redeem_cost} puntos "
-                          f"por un sonido tuyo por {s.sound_redeem_days} días.")
+                          f"por un sonido tuyo en el soundboard del server por {s.sound_redeem_days} días.")
             sounds.append("`/sonido-del <nombre>` 🔒 — borrá un sonido que canjeaste.")
         embed.add_field(name="🔊 Sonidos", value="\n".join(sounds), inline=False)
 

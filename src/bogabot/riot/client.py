@@ -194,3 +194,13 @@ class RiotClient:
     async def get_match_timeline(self, match_id: str) -> dict:
         url = f"{self._base()}/lol/match/v5/matches/{match_id}/timeline"
         return await self._get(url)
+
+    # --- spectator-v5 ------------------------------------------------------
+    async def get_active_game(self, puuid: str) -> dict | None:
+        """Partida en curso del jugador (spectator-v5) o None si no está
+        jugando. Va por routing de plataforma (la2), no regional."""
+        url = f"https://{self._platform}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{puuid}"
+        try:
+            return await self._get(url)
+        except NotFoundError:
+            return None

@@ -1,18 +1,27 @@
 """Módulo "sonidos": el bot entra a un canal de voz, tira un audio corto y se va.
 
-Dos formas de disparo:
+Formas de disparo:
   - Manual: /sonido [nombre]  (en el canal de voz de quien lo pide).
   - Forzado (solo devs): /sonido-forzar [nombre] [canal].
+  - Por evento: listener de IngestService. Cuando termina (recién) una
+    partida del grupo con papelón o victoria épica, suena SOUNDS_EVENT_PAPELON
+    / SOUNDS_EVENT_VICTORY en el canal de voz donde están los que la jugaron.
+    Nada de azar: solo suena donde está la gente de esa partida.
   - Random: random_job corre cada SOUNDS_CHECK_INTERVAL_MINUTES; dentro del
     horario activo, si hay canales con gente y pasó el cooldown, tira un dado
     (SOUNDS_CHANCE) y, si sale, elige un canal ocupado y un audio al azar.
+    Default SOUNDS_CHANCE=0 (apagado): molestaba que entrara sin que nadie
+    lo pidiera.
 
 Los audios viven en SOUNDS_DIR (fuera de git). Dos formas de cargarlos:
   - /sonido-add (solo devs): permanente.
   - /canjear-sonido (rol POINTS_ROLE_ID): cuesta SOUND_REDEEM_COST puntos, dura
     como mucho SOUND_REDEEM_MAX_SECONDS y vence a los SOUND_REDEEM_DAYS días.
-    Dueño y vencimiento quedan en SOUNDS_DIR/_meta.json; expire_job borra los
-    vencidos. Un sonido sin entrada en _meta.json es permanente.
+    Además de guardarse acá, se sube al **soundboard del server**, así cada
+    uno lo tira cuando quiere desde Discord (sin que el bot entre a nada).
+    Dueño, vencimiento e id del soundboard quedan en SOUNDS_DIR/_meta.json;
+    expire_job borra los vencidos (archivo + soundboard). Un sonido sin
+    entrada en _meta.json es permanente.
 
 El cog no toca storage ni Riot: solo settings + filesystem + voz (+ el
 PointsStore del bot para cobrar el canje).
@@ -31,6 +40,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from bogabot.core.models import MatchRecord, TrollLevel
 from bogabot.core.timeutils import get_tz
 
 if TYPE_CHECKING:
@@ -44,6 +54,27 @@ _MAX_UPLOAD_BYTES = 2 * 1024 * 1024
 # 3 minutos colgado en un canal.
 _MAX_PLAY_SECONDS = 20
 _META_FILE = "_meta.json"
+# Límites del soundboard de Discord: mp3/ogg, hasta 5.2 s y 512 KB.
+_SOUNDBOARD_MAX_SECONDS = 5.2
+_SOUNDBOARD_MAX_BYTES = 512 * 1024
+_SOUNDBOARD_SUFFIXES = (".mp3", ".ogg")
+# "Victoria épica" para el sonido por evento: algún ganador del grupo con
+# muchas kills y buen KDA.
+_EPIC_MIN_KILLS = 10
+_EPIC_MIN_KDA = 7.0
+
+
+def pick_event_sound(records: list[MatchRecord], levels: list[TrollLevel],
+                     papelon_sound: str, victory_sound: str) -> str | None:
+    """Qué sonido corresponde a una partida recién terminada (registros de
+    los vinculados que la jugaron + su nivel troll), o None si ninguno.
+    El papelón tiene prioridad: es lo más gracioso."""
+    if papelon_sound and any(level >= TrollLevel.PAPELON for level in levels):
+        return papelon_sound
+    if victory_sound and any(r.win and r.kills >= _EPIC_MIN_KILLS and r.kda >= _EPIC_MIN_KDA
+                             for r in records):
+        return victory_sound
+    return None
 
 
 class SoundsCog(commands.Cog):
@@ -170,10 +201,99 @@ class SoundsCog(commands.Cog):
             log.info("Sonido '%s' reproducido en #%s.", sound.stem, channel.name)
 
     # ------------------------------------------------------------------ #
+    # Soundboard del server (canjes)
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    async def _soundboard_bytes(path: Path) -> bytes | None:
+        """El audio listo para el soundboard: tal cual si ya es mp3/ogg y
+        entra en 512 KB; si no, convertido a mp3 con ffmpeg. None si falla."""
+        if path.suffix.lower() in _SOUNDBOARD_SUFFIXES and path.stat().st_size <= _SOUNDBOARD_MAX_BYTES:
+            return await asyncio.to_thread(path.read_bytes)
+        out = path.with_name(path.name + ".sb.mp3")
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-v", "error", "-i", str(path), "-t", str(_SOUNDBOARD_MAX_SECONDS),
+            "-ac", "2", "-b:a", "128k", str(out),
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=30)
+            if proc.returncode != 0 or not out.exists():
+                return None
+            data = await asyncio.to_thread(out.read_bytes)
+            return data if len(data) <= _SOUNDBOARD_MAX_BYTES else None
+        except asyncio.TimeoutError:
+            proc.kill()
+            return None
+        finally:
+            out.unlink(missing_ok=True)
+
+    async def _delete_from_soundboard(self, name: str) -> None:
+        """Saca del soundboard el sonido canjeado `name` (si se había subido)."""
+        sound_id = self._meta.get(name, {}).get("soundboard_id")
+        if not sound_id:
+            return
+        for guild in self._guilds():
+            sound = guild.get_soundboard_sound(int(sound_id))
+            if sound is None:
+                continue
+            try:
+                await sound.delete(reason=f"Canje de sonido '{name}' vencido o borrado")
+                log.info("Sonido '%s' sacado del soundboard.", name)
+            except discord.HTTPException as exc:
+                log.warning("No pude sacar '%s' del soundboard (%s).", name, exc)
+
+    def _guilds(self) -> list[discord.Guild]:
+        gid = self.bot.settings.guild_id
+        return [g for g in self.bot.guilds if not gid or g.id == gid]
+
+    # ------------------------------------------------------------------ #
+    # Sonidos por evento (listener de IngestService)
+    # ------------------------------------------------------------------ #
+    def _voice_channel_of(self, user_ids: set[int]) -> discord.VoiceChannel | None:
+        """El canal de voz donde hay más jugadores de `user_ids` (None si no
+        hay ninguno conectado)."""
+        best, best_count = None, 0
+        for guild in self._guilds():
+            for ch in self._occupied_voice_channels(guild):
+                count = sum(1 for m in ch.members if m.id in user_ids)
+                if count > best_count:
+                    best, best_count = ch, count
+        return best
+
+    async def _on_new_matches(self, records: list[MatchRecord]) -> None:
+        s = self.bot.settings
+        if not (s.sounds_event_papelon or s.sounds_event_victory):
+            return
+        now = dt.datetime.now(dt.timezone.utc)
+        max_age = dt.timedelta(minutes=s.match_notify_max_age_minutes)
+        by_match: dict[str, list[MatchRecord]] = {}
+        for r in records:
+            by_match.setdefault(r.match_id, []).append(r)
+        for match_id, match_records in by_match.items():
+            if now - match_records[0].game_end > max_age:
+                continue  # partida vieja (ingesta forzada, bot caído): no suena
+            levels = [self.bot.trolls.evaluate(r).level for r in match_records]
+            name = pick_event_sound(match_records, levels, s.sounds_event_papelon, s.sounds_event_victory)
+            if name is None:
+                continue
+            sound = self._find_sound(name)
+            if sound is None:
+                log.warning("El sonido de evento '%s' no existe (ver /sonidos).", name)
+                continue
+            channel = self._voice_channel_of({r.discord_id for r in match_records})
+            if channel is None or self._play_lock.locked():
+                continue
+            try:
+                await self._play_in(channel, sound)
+                log.info("Sonido de evento '%s' por %s en #%s.", name, match_id, channel.name)
+            except Exception:  # noqa: BLE001 - un sonido no debe romper la ingesta
+                log.exception("Falló el sonido de evento en #%s.", channel.name)
+
+    # ------------------------------------------------------------------ #
     # Loops: random y vencimiento de canjes
     # ------------------------------------------------------------------ #
     async def cog_load(self) -> None:
         self.expire_job.start()
+        self.bot.ingest.add_listener(self._on_new_matches)
         if not self.bot.settings.sounds_enabled:
             log.info("Sonidos random desactivados (SOUNDS_ENABLED=false).")
             return
@@ -188,6 +308,7 @@ class SoundsCog(commands.Cog):
 
     async def cog_unload(self) -> None:
         self.expire_job.cancel()
+        self.bot.ingest.remove_listener(self._on_new_matches)
         if self.random_job.is_running():
             self.random_job.cancel()
 
@@ -231,6 +352,7 @@ class SoundsCog(commands.Cog):
             sound = self._find_sound(name)
             if sound is not None:
                 sound.unlink()
+            await self._delete_from_soundboard(name)
             del self._meta[name]
             log.info("Sonido canjeado '%s' venció y se borró.", name)
         if expired:
@@ -310,7 +432,7 @@ class SoundsCog(commands.Cog):
         await interaction.followup.send(f"Listo, `{name}` cargado. Probalo con `/sonido {name}`.")
 
     @app_commands.command(name="canjear-sonido",
-                          description="Canjeá puntos por subir un sonido temporal al bot.")
+                          description="Canjeá puntos por un sonido tuyo en el soundboard del server.")
     @app_commands.describe(nombre="Nombre corto para el sonido (sin espacios).",
                            archivo="El audio (mp3/ogg/wav, cortito).")
     async def canjear_sonido(self, interaction: discord.Interaction, nombre: str,
@@ -324,8 +446,13 @@ class SoundsCog(commands.Cog):
 
         name = self._clean_name(nombre)
         error = self._validate_upload(name, archivo)
+        if not error and len(name) < 2:
+            error = "El nombre tiene que tener al menos 2 caracteres."
         if error:
             await interaction.followup.send(error)
+            return
+        if interaction.guild is None:
+            await interaction.followup.send("Esto se usa dentro del server.")
             return
         active = self._active_redeems(member.id)
         if len(active) >= s.sound_redeem_max_active:
@@ -343,33 +470,51 @@ class SoundsCog(commands.Cog):
         # y recién se publica si pasa el chequeo de duración y se pudo cobrar.
         suffix = Path(archivo.filename).suffix.lower()
         tmp = self.sounds_dir / f".{name}{suffix}.part"
+        max_seconds = min(s.sound_redeem_max_seconds, _SOUNDBOARD_MAX_SECONDS)
         await archivo.save(tmp)
         try:
             seconds = await self._duration_seconds(tmp)
             if seconds is None:
                 await interaction.followup.send("No pude leer ese audio. ¿Seguro que es un mp3/ogg/wav válido?")
                 return
-            if seconds > s.sound_redeem_max_seconds + 0.5:
+            if seconds > max_seconds + 0.2:
                 await interaction.followup.send(
-                    f"Dura {seconds:.1f} s y el máximo es {s.sound_redeem_max_seconds} s. Recortalo y probá de nuevo.")
+                    f"Dura {seconds:.1f} s y el máximo es {max_seconds:g} s (límite del soundboard). "
+                    f"Recortalo y probá de nuevo.")
+                return
+            data = await self._soundboard_bytes(tmp)
+            if data is None:
+                await interaction.followup.send("No pude preparar ese audio para el soundboard. Probá con un mp3.")
                 return
             if not await self.bot.points.spend(member.id, s.sound_redeem_cost, f"canje sonido {name}"):
                 await interaction.followup.send("Te faltan puntos (¿canjeaste otra cosa recién?).")
+                return
+            try:
+                board = await interaction.guild.create_soundboard_sound(
+                    name=name, sound=data, reason=f"Canje de puntos de {member}")
+            except discord.HTTPException as exc:
+                await self.bot.points.add({member.id: s.sound_redeem_cost}, f"reintegro canje sonido {name}")
+                log.warning("No pude subir '%s' al soundboard (%s).", name, exc)
+                why = ("el bot no tiene permiso para crear expresiones" if isinstance(exc, discord.Forbidden)
+                       else "¿está lleno el soundboard?")
+                await interaction.followup.send(f"No pude subirlo al soundboard ({why}). Te devolví los puntos.")
                 return
             tmp.replace(self.sounds_dir / f"{name}{suffix}")
         finally:
             tmp.unlink(missing_ok=True)
 
         expires = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=s.sound_redeem_days)
-        self._meta[name] = {"owner_id": member.id, "expires_at": expires.isoformat()}
+        self._meta[name] = {"owner_id": member.id, "expires_at": expires.isoformat(),
+                            "soundboard_id": board.id}
         await self._save_meta()
         log.info("Sonido '%s' canjeado por %s (%.1f s), vence %s.", name, member, seconds, expires)
         await interaction.followup.send(
-            f"Listo, `{name}` cargado hasta {discord.utils.format_dt(expires, 'f')}. "
-            f"Te quedan **{self.bot.points.balance(member.id)}** puntos. Probalo con `/sonido {name}`.")
+            f"Listo, `{name}` está en el soundboard del server hasta {discord.utils.format_dt(expires, 'f')}. "
+            f"Te quedan **{self.bot.points.balance(member.id)}** puntos.")
         if isinstance(interaction.channel, discord.abc.Messageable):
             await interaction.channel.send(
-                f"🔊 {member.mention} canjeó el sonido `{name}` por {s.sound_redeem_days} días.",
+                f"🔊 {member.mention} canjeó el sonido `{name}`: ya está en el soundboard por "
+                f"{s.sound_redeem_days} días. ¡Tírenlo cuando quieran!",
                 allowed_mentions=discord.AllowedMentions.none())
 
     @app_commands.command(name="sonido-del", description="Borra un sonido (devs, o el dueño de uno canjeado).")
@@ -385,6 +530,7 @@ class SoundsCog(commands.Cog):
             await interaction.response.send_message(f"No existe `{nombre}`.", ephemeral=True)
             return
         sound.unlink()
+        await self._delete_from_soundboard(sound.stem)
         if self._meta.pop(sound.stem, None) is not None:
             await self._save_meta()
         log.info("Sonido '%s' borrado por %s.", sound.stem, interaction.user)

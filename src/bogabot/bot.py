@@ -22,7 +22,11 @@ from bogabot.modules.lol.carries import CARRY_FLAVOR
 from bogabot.modules.lol.scheduler import LolScheduler
 from bogabot.modules.lol.trolls import TrollService
 from bogabot.modules.points.cog import PointsCog
+from bogabot.modules.points.shop import ShopCog
+from bogabot.modules.points.shop_store import ShopStore
 from bogabot.modules.points.store import PointsStore
+from bogabot.modules.predictions.cog import PredictionsCog
+from bogabot.modules.predictions.store import PredictionStore
 from bogabot.modules.sounds.cog import SoundsCog
 from bogabot.riot.client import RiotClient
 from bogabot.scoring.engine import ScoringEngine
@@ -68,6 +72,8 @@ class BogaBot(commands.Bot):
         self.carry_detector = TrollDetector(load_troll_config(settings.carries_config_path, CARRY_CATALOG))
         self.storage = DiscordChannelStorage(settings)
         self.points = PointsStore(settings.points_file)
+        self.shop = ShopStore(settings.shop_file)
+        self.predictions = PredictionStore(settings.predictions_file)
 
         # --- Servicios de dominio (dependen solo de interfaces) ---
         self.ingest = IngestService(self.riot, self.storage, self.storage, settings)
@@ -91,6 +97,9 @@ class BogaBot(commands.Bot):
         await self.add_cog(SoundsCog(self))
         if self.settings.points_role_id is not None:
             await self.add_cog(PointsCog(self))
+            await self.add_cog(ShopCog(self, self.shop))
+            if self.settings.predictions_enabled:
+                await self.add_cog(PredictionsCog(self, self.predictions))
         await self.add_cog(HelpCog(self))
 
         if self._log_to_discord:
