@@ -184,12 +184,6 @@ _MINUTE_MS = 60_000
 # Versión del análisis de timeline. Subirla cuando se agregan datos nuevos:
 # `/trolls-recalcular` completa los registros con una versión anterior.
 TIMELINE_VERSION = 4
-# Posición aproximada de cada nexo en la Grieta (coordenadas del mapa).
-_NEXUS_POSITION = {100: (1550, 1660), 200: (13200, 13200)}
-# Más lejos que esto del propio nexo = "no estaba defendiendo la base".
-_BASE_ABSENT_DISTANCE = 7000
-# Estructuras de la base (si caen y no estás, es "nos tiraban la base").
-_BASE_TOWERS = {"NEXUS_TURRET", "BASE_TURRET"}
 # Si morís primero y en este lapso pierden un objetivo grande, es un "throw".
 _THROW_WINDOW_MS = 60_000
 _THROW_OBJECTIVES = {"BARON_NASHOR": "el Barón", "ELDER_DRAGON": "el Dragón Ancestral"}
@@ -201,13 +195,8 @@ _RICH_DEATH_MAX_MS = 25 * _MINUTE_MS
 # Una muerte "aislada" (lo agarraron solo) no tiene otras kills de su equipo
 # (a favor o en contra) en esta ventana alrededor.
 _ISOLATED_WINDOW_MS = 10_000
-# Si tiró estructuras enemigas en este lapso alrededor de cuando caía la base
-# propia, estaba haciendo split push (válido), no farmeando.
-_SPLIT_PUSH_WINDOW_MS = 60_000
 # AFK: se movió menos que esto entre dos frames y no ganó experiencia.
 _AFK_MAX_MOVE = 150
-# Ventana en la que se considera que el jugador sigue muerto (aprox.).
-_DEAD_WINDOW_MS = 45_000
 
 
 def _apply_timeline(record: MatchRecord, timeline: dict, opponent_participant_id: int | None,
@@ -255,7 +244,6 @@ def _timeline_stats(timeline: dict, me: int, opponent: int | None,
         stats["deaths_to_lane_opponent"] = sum(1 for e in my_deaths if e.get("killerId") == opponent)
         stats["gold_diff_15"] = _gold_diff_at(frames, me, opponent, minute=15)
 
-    stats.update(_base_absence(frames, events, me, team_id, death_times))
     stats.update(_throws(events, kills, me, team_id, teammates))
     stats.update(_rich_deaths(frames, death_times, me))
     stats["afk_minutes"] = _afk_minutes(frames, me, death_times)
@@ -282,75 +270,9 @@ def _pframe(frame: dict | None, pid: int) -> dict | None:
     return (frame or {}).get("participantFrames", {}).get(str(pid))
 
 
-def _frame_near(frames: list[dict], t: int, max_gap: int = _MINUTE_MS) -> dict | None:
-    if not frames:
-        return None
-    frame = min(frames, key=lambda f: abs(int(f.get("timestamp", 0)) - t))
-    return frame if abs(int(frame.get("timestamp", 0)) - t) <= max_gap else None
-
-
 def _frame_before(frames: list[dict], t: int) -> dict | None:
     before = [f for f in frames if int(f.get("timestamp", 0)) <= t]
     return before[-1] if before else None
-
-
-def _dead_at(death_times: list[int], t: int) -> bool:
-    return any(0 <= t - d <= _DEAD_WINDOW_MS for d in death_times)
-
-
-def _base_losses(events: list[dict], team_id: int) -> list[int]:
-    """Momentos en que el equipo perdió una estructura de su base
-    (torres del nexo/de inhibidor, inhibidores y el nexo mismo)."""
-    times = []
-    for e in events:
-        if e.get("type") == "BUILDING_KILL" and e.get("teamId") == team_id and (
-            e.get("buildingType") == "INHIBITOR_BUILDING" or e.get("towerType") in _BASE_TOWERS
-        ):
-            times.append(int(e.get("timestamp", 0)))
-        elif e.get("type") == "GAME_END" and e.get("winningTeam") not in (None, team_id):
-            times.append(int(e.get("timestamp", 0)))
-    return times
-
-
-def _base_absence(frames: list[dict], events: list[dict], me: int, team_id: int,
-                  death_times: list[int]) -> dict:
-    """Cuántas estructuras de la base cayeron mientras el jugador estaba vivo
-    y lejos, y si en ese momento estaba farmeando (jungla o línea)."""
-    nexus = _NEXUS_POSITION.get(team_id)
-    if nexus is None:
-        return {}
-    absent, farming = 0, None
-    my_structures = [
-        int(e.get("timestamp", 0)) for e in events
-        if e.get("type") == "BUILDING_KILL" and e.get("teamId") not in (None, team_id)
-        and (e.get("killerId") == me or me in (e.get("assistingParticipantIds") or []))
-    ]
-    for t in _base_losses(events, team_id):
-        if _dead_at(death_times, t):
-            continue
-        if any(abs(t - b) <= _SPLIT_PUSH_WINDOW_MS for b in my_structures):
-            continue  # estaba tirando la base enemiga: carrera de split push
-        pos = (_pframe(_frame_near(frames, t), me) or {}).get("position")
-        if not pos:
-            continue
-        distance = ((pos.get("x", 0) - nexus[0]) ** 2 + (pos.get("y", 0) - nexus[1]) ** 2) ** 0.5
-        if distance <= _BASE_ABSENT_DISTANCE:
-            continue
-        absent += 1
-        if farming is None:
-            farming = _farming_between(frames, me, t - 90_000, t + 30_000)
-    return {"base_absent": absent, "base_absent_farming": farming}
-
-
-def _farming_between(frames: list[dict], me: int, start: int, end: int) -> str | None:
-    before, after = _pframe(_frame_before(frames, start), me), _pframe(_frame_near(frames, end), me)
-    if not before or not after:
-        return None
-    if int(after.get("jungleMinionsKilled", 0)) - int(before.get("jungleMinionsKilled", 0)) >= 2:
-        return "jungla"
-    if int(after.get("minionsKilled", 0)) - int(before.get("minionsKilled", 0)) >= 3:
-        return "línea"
-    return None
 
 
 def _throws(events: list[dict], kills: list[dict], me: int, team_id: int,

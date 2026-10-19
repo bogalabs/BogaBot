@@ -288,17 +288,6 @@ def _check_arena_last(r: MatchRecord, p: Params) -> Hit:
     return p.int("points"), f"salió {r.placement}º en Arena"
 
 
-def _check_base_absent(r: MatchRecord, p: Params) -> Hit:
-    if r.win or r.base_absent is None or r.base_absent < p["min_structures"]:
-        return None
-    doing = {
-        "jungla": "estaba farmeando la jungla",
-        "línea": "estaba farmeando una línea",
-    }.get(r.base_absent_farming or "", "estaba en la otra punta del mapa")
-    points = p.int("points") + (p.int("farming_bonus") if r.base_absent_farming else 0)
-    return points, f"nos tiraban la base y {doing}"
-
-
 def _check_throw(r: MatchRecord, p: Params) -> Hit:
     if r.throw_deaths is None or r.throw_deaths < p["min_throws"]:
         return None
@@ -461,13 +450,6 @@ RULES: dict[str, RuleSpec] = {
             _check_item_seller,
         ),
         RuleSpec(
-            "base_absent", "🏚️", "Nos tiraban la base",
-            "Caía la base mientras él, vivo, estaba lejos y sin tirar la base enemiga (+2 si farmeaba).",
-            _RIFT_ONLY,
-            {"points": 5, "min_structures": 2, "farming_bonus": 3},
-            _check_base_absent,
-        ),
-        RuleSpec(
             "throw", "💥", "Throw",
             "Lo agarraron solo (sin pelea) y enseguida perdieron el Barón, el Ancestral o el nexo.",
             _RIFT_ONLY,
@@ -530,7 +512,7 @@ RULES: dict[str, RuleSpec] = {
 # Qué tan "contable" es cada cargo para la anécdota de #general: se cuenta
 # primero el de mayor prioridad (a igualdad, el de más puntos).
 STORY_PRIORITY: dict[str, int] = {
-    "base_absent": 100, "afk": 95, "throw": 90, "item_seller": 85, "ghost": 80,
+    "afk": 95, "throw": 90, "item_seller": 85, "ghost": 80,
     "lane_delivery": 60, "team_anchor": 55, "feeder": 50, "arena_last": 50,
     "first_blood": 45, "early_deaths": 40, "hoarder": 35, "lane_gap": 30,
     "tombstone": 30, "pinger": 25, "executed": 20, "low_damage": 20,

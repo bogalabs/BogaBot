@@ -179,34 +179,6 @@ class TestTimelineSituations(unittest.TestCase):
     def _lost_match(self) -> dict:
         return match_json(overrides={pid: {"win": pid > 5} for pid in range(1, 11)})
 
-    def test_base_absent_while_farming_jungle(self):
-        # Minuto 30-31: caen el inhibidor y el nexo del azul; el 3 está en la
-        # jungla roja (lejos) sumando campamentos.
-        events = [
-            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000, "teamId": 100,
-             "buildingType": "INHIBITOR_BUILDING"},
-            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000 + 20_000, "teamId": 100,
-             "buildingType": "TOWER_BUILDING", "towerType": "NEXUS_TURRET"},
-            {"type": "GAME_END", "timestamp": 31 * 60_000, "winningTeam": 200},
-        ]
-        far = {m: (11000, 9000) for m in range(28, 33)}
-        jungle = {m: (m - 27) * 4 for m in range(28, 33)}
-        r = map_match(self._lost_match(), "puuid-3", 33,
-                      timeline=_positional_timeline(far, events, jungle=jungle))
-        self.assertEqual(r.base_absent, 3)
-        self.assertEqual(r.base_absent_farming, "jungla")
-
-    def test_not_absent_when_defending_or_dead(self):
-        events = [
-            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000, "teamId": 100,
-             "buildingType": "INHIBITOR_BUILDING"},
-            kill(30 * 60_000 - 10_000, killer=8, victim=3),  # muerto cuando cae
-            {"type": "GAME_END", "timestamp": 31 * 60_000, "winningTeam": 200},
-        ]
-        home = {m: (2500, 2500) for m in range(28, 33)}
-        r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline(home, events))
-        self.assertEqual(r.base_absent, 0)
-
     def test_throw_only_if_picked_off_alone(self):
         events = [
             kill(25 * 60_000, killer=8, victim=3),  # lo agarran solo...
@@ -226,18 +198,6 @@ class TestTimelineSituations(unittest.TestCase):
         ]
         r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline({}, events))
         self.assertEqual(r.throw_deaths, 0)
-
-    def test_split_push_is_not_base_absence(self):
-        events = [
-            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000, "teamId": 100,
-             "buildingType": "INHIBITOR_BUILDING"},
-            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000 + 15_000, "teamId": 200, "killerId": 3,
-             "buildingType": "TOWER_BUILDING", "towerType": "BASE_TURRET"},  # él tiraba la base roja
-            {"type": "GAME_END", "timestamp": 30 * 60_000 + 40_000, "winningTeam": 200},
-        ]
-        far = {m: (12000, 11000) for m in range(28, 33)}
-        r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline(far, events))
-        self.assertEqual(r.base_absent, 0)
 
     def test_rich_deaths(self):
         events = [kill(12 * 60_000 + 30_000, 8, 3), kill(20 * 60_000 + 10_000, 8, 3), kill(5 * 60_000, 8, 3),
