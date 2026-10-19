@@ -111,7 +111,5 @@ rules:
   early_ff:         { points: 2, max_minutes: 20 }
   # 🧹 Derrota con esta diferencia de kills o más. Agravante (como el FF).
   stomped:          { points: 1, min_gap: 20, min_gap_aram: 25, min_gap_chaos: 30 }
-  # ❓ Pings de "?" tirados.
-  pinger:           { points: 1, min_pings: 15 }
   # 🥄 Puesto en Arena desde el cual se considera último.
   arena_last:       { points: 2, min_placement: 8 }

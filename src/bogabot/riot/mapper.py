@@ -143,7 +143,6 @@ def map_match(
         # de 0, que dispararía reglas como "ni un control ward" en falso.
         time_dead_seconds=_opt_int(participant, "totalTimeSpentDead"),
         control_wards_bought=_opt_int(participant, "visionWardsBoughtInGame"),
-        question_pings=_opt_int(participant, "enemyMissingPings"),
         placement=int(placement) if placement else None,
         team_kills=_sum(team, "kills"),
         team_deaths=_sum(team, "deaths"),

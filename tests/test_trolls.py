@@ -237,15 +237,15 @@ class TestTrollConfig(unittest.TestCase):
             self.assertIn(f"\n  {code}:", text, f"la regla '{code}' no está documentada en trolls.yaml")
 
     def test_overrides_and_disable(self):
-        cfg = self._load("levels: {troll: 4, papelon: 9}\nrules:\n  feeder: {min_deaths: 8, deaths_per_10: 2}\n  pinger: {enabled: false}\n")
+        cfg = self._load("levels: {troll: 4, papelon: 9}\nrules:\n  feeder: {min_deaths: 8, deaths_per_10: 2}\n  executed: {enabled: false}\n")
         self.assertEqual((cfg.troll_level, cfg.papelon_level), (4, 9))
         self.assertEqual(cfg.rules["feeder"].params["min_deaths"], 8)
         self.assertEqual(cfg.rules["feeder"].params["points"], 3)  # el resto queda por defecto
-        self.assertFalse(cfg.rules["pinger"].enabled)
+        self.assertFalse(cfg.rules["executed"].enabled)
         detector = TrollDetector(cfg)
         self.assertIn("feeder", {f.code for f in detector.evaluate(record(kills=0, deaths=8, assists=2)).flags})
-        self.assertNotIn("pinger", {f.code for f in detector.evaluate(record(question_pings=50)).flags})
-        self.assertNotIn("pinger", {spec.code for spec, _ in detector.rules_overview()})
+        self.assertNotIn("executed", {f.code for f in detector.evaluate(record(executed_deaths=5)).flags})
+        self.assertNotIn("executed", {spec.code for spec, _ in detector.rules_overview()})
 
     def test_empty_file_uses_defaults(self):
         self.assertEqual(self._load(""), TrollConfig.default())

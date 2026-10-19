@@ -318,7 +318,7 @@ Después de cada partida, cada jugador del grupo se juzga con ~25 reglas
 - **De las stats de la partida:** feeder, KDA trágico, 0 kills y 0
   asistencias, pacifista, poco daño o participación, visión nula, cero
   control wards, farm bajo, mucho tiempo muerto, "ancla" del equipo, FF
-  antes del 20, barrida en kills, spam de pings de "?", último en Arena.
+  antes del 20, barrida en kills, último en Arena.
 
 Cada cargo suma puntos troll; en ranked se multiplican y si igual ganaron se
 achican. Los umbrales cambian según el modo (ARAM y modos caóticos toleran

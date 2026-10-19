@@ -552,6 +552,4 @@ class TrollService:
             parts.append(f"oro vs rival al 15: {r.gold_diff_15:+,}".replace(",", "."))
         if r.items_sold is not None:
             parts.append(f"{r.items_sold} items vendidos")
-        if r.question_pings is not None:
-            parts.append(f"{r.question_pings} pings de '?'")
         return " · ".join(parts)[:_FIELD_LIMIT]

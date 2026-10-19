@@ -98,7 +98,6 @@ class MatchRecord:
     # tienen (quedan en None) y las reglas que las necesitan se saltean.
     time_dead_seconds: int | None = None
     control_wards_bought: int | None = None
-    question_pings: int | None = None  # pings de "?" (enemyMissingPings)
     placement: int | None = None  # puesto final en Arena (1..8); None en otros modos
     # Contexto del equipo (sale de los 10 jugadores de la partida).
     team_kills: int | None = None
@@ -230,7 +229,6 @@ class MatchRecord:
             cs=int(d.get("cs", 0)),
             time_dead_seconds=_opt_int(d.get("time_dead_seconds")),
             control_wards_bought=_opt_int(d.get("control_wards_bought")),
-            question_pings=_opt_int(d.get("question_pings")),
             placement=_opt_int(d.get("placement")),
             team_kills=_opt_int(d.get("team_kills")),
             team_deaths=_opt_int(d.get("team_deaths")),
@@ -263,7 +261,7 @@ class MatchRecord:
 
 # Campos opcionales de MatchRecord (se serializan solo si no son None).
 _OPTIONAL_RECORD_FIELDS = (
-    "time_dead_seconds", "control_wards_bought", "question_pings", "placement",
+    "time_dead_seconds", "control_wards_bought", "placement",
     "team_kills", "team_deaths", "enemy_kills", "team_damage", "damage_taken", "team_damage_taken",
     "first_death_minute", "deaths_before_10", "gave_first_blood", "executed_deaths",
     "items_sold", "deaths_to_lane_opponent", "gold_diff_15",

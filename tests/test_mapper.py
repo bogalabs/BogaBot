@@ -20,7 +20,7 @@ def _troll_match() -> dict:
     """El azul pierde; el mid azul (participante 3) va 1/11/2."""
     overrides = {pid: {"win": pid > 5} for pid in range(1, 11)}
     overrides[3].update(kills=1, deaths=11, assists=2, totalDamageDealtToChampions=5000,
-                        totalTimeSpentDead=600, visionWardsBoughtInGame=0, enemyMissingPings=22)
+                        totalTimeSpentDead=600, visionWardsBoughtInGame=0)
     return match_json(overrides=overrides)
 
 
@@ -54,7 +54,6 @@ class TestMapMatch(unittest.TestCase):
         self.assertEqual(r.team_damage, 85000)
         self.assertEqual(r.time_dead_seconds, 600)
         self.assertEqual(r.control_wards_bought, 0)
-        self.assertEqual(r.question_pings, 22)
         self.assertIsNone(r.placement)
         # Sin timeline: esos campos quedan en None.
         self.assertIsNone(r.deaths_before_10)
@@ -106,12 +105,11 @@ class TestMapMatch(unittest.TestCase):
 
     def test_missing_optional_fields_stay_none(self):
         data = match_json()
-        for key in ("totalTimeSpentDead", "visionWardsBoughtInGame", "enemyMissingPings"):
+        for key in ("totalTimeSpentDead", "visionWardsBoughtInGame"):
             del data["info"]["participants"][0][key]
         r = map_match(data, "puuid-1", 1)
         self.assertIsNone(r.time_dead_seconds)
         self.assertIsNone(r.control_wards_bought)  # no dispara "ni un control ward" en falso
-        self.assertIsNone(r.question_pings)
 
     def test_arena_placement(self):
         data = match_json(game_mode="CHERRY", queue_id=1700, overrides={1: {"placement": 8}})

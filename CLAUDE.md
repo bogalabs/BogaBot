@@ -204,7 +204,7 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
 - **Detector de trolls:** `trolls/` es lógica pura sobre `MatchRecord`
   (reglas en `trolls/rules.py`, umbrales en `config/trolls.yaml`). Por eso
   `MatchRecord` guarda stats extendidas (contexto del equipo, tiempo muerto,
-  pings, control wards) y datos del **timeline** (primera sangre, muertes
+  control wards) y datos del **timeline** (primera sangre, muertes
   antes del 10, oro vs. rival al 15, items vendidos, ejecuciones), todos
   opcionales: los registros viejos quedan en `None` y esas reglas se
   saltean (`/trolls-recalcular` los completa vía `update_match`). El
