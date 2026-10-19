@@ -20,7 +20,7 @@ def _troll_match() -> dict:
     """El azul pierde; el mid azul (participante 3) va 1/11/2."""
     overrides = {pid: {"win": pid > 5} for pid in range(1, 11)}
     overrides[3].update(kills=1, deaths=11, assists=2, totalDamageDealtToChampions=5000,
-                        totalTimeSpentDead=600, visionWardsBoughtInGame=0, enemyMissingPings=22)
+                        totalTimeSpentDead=600, visionWardsBoughtInGame=0)
     return match_json(overrides=overrides)
 
 
@@ -54,7 +54,6 @@ class TestMapMatch(unittest.TestCase):
         self.assertEqual(r.team_damage, 85000)
         self.assertEqual(r.time_dead_seconds, 600)
         self.assertEqual(r.control_wards_bought, 0)
-        self.assertEqual(r.question_pings, 22)
         self.assertIsNone(r.placement)
         # Sin timeline: esos campos quedan en None.
         self.assertIsNone(r.deaths_before_10)
@@ -106,12 +105,11 @@ class TestMapMatch(unittest.TestCase):
 
     def test_missing_optional_fields_stay_none(self):
         data = match_json()
-        for key in ("totalTimeSpentDead", "visionWardsBoughtInGame", "enemyMissingPings"):
+        for key in ("totalTimeSpentDead", "visionWardsBoughtInGame"):
             del data["info"]["participants"][0][key]
         r = map_match(data, "puuid-1", 1)
         self.assertIsNone(r.time_dead_seconds)
         self.assertIsNone(r.control_wards_bought)  # no dispara "ni un control ward" en falso
-        self.assertIsNone(r.question_pings)
 
     def test_arena_placement(self):
         data = match_json(game_mode="CHERRY", queue_id=1700, overrides={1: {"placement": 8}})
@@ -179,34 +177,6 @@ class TestTimelineSituations(unittest.TestCase):
     def _lost_match(self) -> dict:
         return match_json(overrides={pid: {"win": pid > 5} for pid in range(1, 11)})
 
-    def test_base_absent_while_farming_jungle(self):
-        # Minuto 30-31: caen el inhibidor y el nexo del azul; el 3 está en la
-        # jungla roja (lejos) sumando campamentos.
-        events = [
-            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000, "teamId": 100,
-             "buildingType": "INHIBITOR_BUILDING"},
-            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000 + 20_000, "teamId": 100,
-             "buildingType": "TOWER_BUILDING", "towerType": "NEXUS_TURRET"},
-            {"type": "GAME_END", "timestamp": 31 * 60_000, "winningTeam": 200},
-        ]
-        far = {m: (11000, 9000) for m in range(28, 33)}
-        jungle = {m: (m - 27) * 4 for m in range(28, 33)}
-        r = map_match(self._lost_match(), "puuid-3", 33,
-                      timeline=_positional_timeline(far, events, jungle=jungle))
-        self.assertEqual(r.base_absent, 3)
-        self.assertEqual(r.base_absent_farming, "jungla")
-
-    def test_not_absent_when_defending_or_dead(self):
-        events = [
-            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000, "teamId": 100,
-             "buildingType": "INHIBITOR_BUILDING"},
-            kill(30 * 60_000 - 10_000, killer=8, victim=3),  # muerto cuando cae
-            {"type": "GAME_END", "timestamp": 31 * 60_000, "winningTeam": 200},
-        ]
-        home = {m: (2500, 2500) for m in range(28, 33)}
-        r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline(home, events))
-        self.assertEqual(r.base_absent, 0)
-
     def test_throw_only_if_picked_off_alone(self):
         events = [
             kill(25 * 60_000, killer=8, victim=3),  # lo agarran solo...
@@ -226,18 +196,6 @@ class TestTimelineSituations(unittest.TestCase):
         ]
         r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline({}, events))
         self.assertEqual(r.throw_deaths, 0)
-
-    def test_split_push_is_not_base_absence(self):
-        events = [
-            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000, "teamId": 100,
-             "buildingType": "INHIBITOR_BUILDING"},
-            {"type": "BUILDING_KILL", "timestamp": 30 * 60_000 + 15_000, "teamId": 200, "killerId": 3,
-             "buildingType": "TOWER_BUILDING", "towerType": "BASE_TURRET"},  # él tiraba la base roja
-            {"type": "GAME_END", "timestamp": 30 * 60_000 + 40_000, "winningTeam": 200},
-        ]
-        far = {m: (12000, 11000) for m in range(28, 33)}
-        r = map_match(self._lost_match(), "puuid-3", 33, timeline=_positional_timeline(far, events))
-        self.assertEqual(r.base_absent, 0)
 
     def test_rich_deaths(self):
         events = [kill(12 * 60_000 + 30_000, 8, 3), kill(20 * 60_000 + 10_000, 8, 3), kill(5 * 60_000, 8, 3),

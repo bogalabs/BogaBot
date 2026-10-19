@@ -36,7 +36,6 @@ def participant(pid: int, **overrides) -> dict:
         "neutralMinionsKilled": 10,
         "totalTimeSpentDead": 120,
         "visionWardsBoughtInGame": 2,
-        "enemyMissingPings": 1,
     }
     data.update(overrides)
     return data
@@ -89,7 +88,7 @@ def record(**overrides) -> MatchRecord:
         queue_id=400, game_mode="CLASSIC", champion="Ahri", position="MIDDLE",
         win=False, game_ended_in_surrender=False, kills=5, deaths=5, assists=5,
         damage_to_champions=20000, vision_score=25, opponent_champion="Zed", cs=200,
-        time_dead_seconds=150, control_wards_bought=2, question_pings=0,
+        time_dead_seconds=150, control_wards_bought=2,
         team_kills=25, team_deaths=25, enemy_kills=25, team_damage=100000,
         first_death_minute=8, deaths_before_10=1, gave_first_blood=False, executed_deaths=0,
         items_sold=1, deaths_to_lane_opponent=1, gold_diff_15=0,

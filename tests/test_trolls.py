@@ -158,11 +158,6 @@ class TestTrollRules(unittest.TestCase):
         self.assertEqual(_codes(legacy), {"feeder", "early_ff"})
 
     def test_new_timeline_situations(self):
-        base = _detector().evaluate(record(base_absent=2, base_absent_farming="jungla"))
-        self.assertEqual([(f.code, f.detail) for f in base.flags],
-                         [("base_absent", "nos tiraban la base y estaba farmeando la jungla")])
-        self.assertNotIn("base_absent", _codes(record(base_absent=1)))  # 1 sola estructura no alcanza
-        self.assertNotIn("base_absent", _codes(record(base_absent=3, win=True)))  # si ganaron, no
         throw = next(f for f in _detector().evaluate(record(throw_deaths=2, throw_objective="el Barón")).flags)
         self.assertEqual((throw.code, throw.points), ("throw", 4))
         self.assertIn("perdimos el Barón (2 veces)", throw.detail)
@@ -199,13 +194,7 @@ class TestTrollRules(unittest.TestCase):
         self.assertNotIn("farm_allergy", codes)
         self.assertNotIn("pacifist", codes)
 
-    def test_base_absent_farming_weighs_more(self):
-        flag = lambda **kw: next(f for f in _detector().evaluate(record(**kw)).flags)  # noqa: E731
-        self.assertEqual(flag(base_absent=2, base_absent_farming="jungla").points, 8)
-        self.assertEqual(flag(base_absent=2).points, 5)
-        # "Nos tiraban la base y estaba farmeando" alcanza sola para ser trolleada.
-        self.assertEqual(_detector().evaluate(record(base_absent=2, base_absent_farming="jungla")).level,
-                         TrollLevel.TROLL)
+    def test_afk_alone_is_a_trolleada(self):
         self.assertEqual(_detector().evaluate(record(afk_minutes=3)).level, TrollLevel.TROLL)
 
     def test_a_bad_game_is_not_a_trolleada(self):
@@ -248,15 +237,15 @@ class TestTrollConfig(unittest.TestCase):
             self.assertIn(f"\n  {code}:", text, f"la regla '{code}' no está documentada en trolls.yaml")
 
     def test_overrides_and_disable(self):
-        cfg = self._load("levels: {troll: 4, papelon: 9}\nrules:\n  feeder: {min_deaths: 8, deaths_per_10: 2}\n  pinger: {enabled: false}\n")
+        cfg = self._load("levels: {troll: 4, papelon: 9}\nrules:\n  feeder: {min_deaths: 8, deaths_per_10: 2}\n  executed: {enabled: false}\n")
         self.assertEqual((cfg.troll_level, cfg.papelon_level), (4, 9))
         self.assertEqual(cfg.rules["feeder"].params["min_deaths"], 8)
         self.assertEqual(cfg.rules["feeder"].params["points"], 3)  # el resto queda por defecto
-        self.assertFalse(cfg.rules["pinger"].enabled)
+        self.assertFalse(cfg.rules["executed"].enabled)
         detector = TrollDetector(cfg)
         self.assertIn("feeder", {f.code for f in detector.evaluate(record(kills=0, deaths=8, assists=2)).flags})
-        self.assertNotIn("pinger", {f.code for f in detector.evaluate(record(question_pings=50)).flags})
-        self.assertNotIn("pinger", {spec.code for spec, _ in detector.rules_overview()})
+        self.assertNotIn("executed", {f.code for f in detector.evaluate(record(executed_deaths=5)).flags})
+        self.assertNotIn("executed", {spec.code for spec, _ in detector.rules_overview()})
 
     def test_empty_file_uses_defaults(self):
         self.assertEqual(self._load(""), TrollConfig.default())
@@ -492,10 +481,10 @@ class TestTrollService(unittest.TestCase):
     def test_general_line_is_short_and_anecdotal(self):
         base = self.service.evaluate(record(
             discord_id=7, champion="Lee Sin", kills=1, deaths=12, assists=2,
-            base_absent=2, base_absent_farming="jungla"))
+            afk_minutes=4))
         line = self.service.build_general_line(base)
         self.assertIn("<@7>", line)
-        self.assertIn("nos tiraban la base y estaba farmeando la jungla", line)  # la anécdota va primero
+        self.assertIn("se quedó 4 minutos quieto sin hacer nada", line)  # la anécdota va primero
         self.assertIn("(Lee Sin 1/12/2)", line)
         self.assertNotIn("\n", line)
         self.assertLess(len(line), 250)
