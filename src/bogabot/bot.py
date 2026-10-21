@@ -31,6 +31,8 @@ from bogabot.modules.points.shop_store import ShopStore
 from bogabot.modules.points.store import PointsStore
 from bogabot.modules.predictions.cog import PredictionsCog
 from bogabot.modules.predictions.store import PredictionStore
+from bogabot.modules.roulette.cog import RouletteCog
+from bogabot.modules.roulette.store import RouletteStore
 from bogabot.modules.sounds.cog import SoundsCog
 from bogabot.riot.client import RiotClient
 from bogabot.scoring.engine import ScoringEngine
@@ -79,6 +81,7 @@ class BogaBot(commands.Bot):
         self.shop = ShopStore(settings.shop_file)
         self.predictions = PredictionStore(settings.predictions_file)
         self.bets = BetsStore(settings.bets_file)
+        self.roulette = RouletteStore(settings.roulette_file)
         # Siempre existe (los módulos reportan progreso sin chequear nada);
         # sin rol de puntos o con MISSIONS_ENABLED=false no hace nada.
         self.missions = MissionsService(
@@ -111,8 +114,10 @@ class BogaBot(commands.Bot):
             await self.add_cog(ShopCog(self, self.shop))
             if self.settings.predictions_enabled:
                 await self.add_cog(PredictionsCog(self, self.predictions))
-            # Después de predicciones: las recompensas se cuelgan de sus partidas en vivo.
+            # Después de predicciones: recompensas y ruleta se cuelgan de sus partidas en vivo.
             await self.add_cog(BetsCog(self, self.bets))
+            if self.settings.roulette_enabled:
+                await self.add_cog(RouletteCog(self, self.roulette))
             if self.missions.enabled:
                 await self.add_cog(MissionsCog(self))
         await self.add_cog(HelpCog(self))

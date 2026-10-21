@@ -360,6 +360,17 @@ más + partidas de LoL con el grupo) y los gastan en `/tienda`:
   de predicciones quién va a ser el troll y el carry de la semana (#1 de
   `/trolls` y `/carries`). Cierran a los `WEEKLY_BET_CLOSE_DAYS` días y se
   pagan el lunes siguiente. Nadie puede apostar a ser él el troll.
+- **`/ruleta [modo]`**: a los que están en tu canal de voz (máx. 5) les toca
+  rol (sin repetir; en "fuera de tu zona" pesan más las posiciones que menos
+  jugó cada uno), campeón (de Data Dragon, con más chance los que encajan en
+  el rol y casi nunca los 3 que más jugás) y build (botas + 3-4 ítems de un
+  tema, con `ROULETTE_CURSED_CHANCE` de build maldita). Botones: re-tirar
+  el tuyo (`ROULETTE_REROLL_COST`, sube cada vez), castigar a otro
+  (`ROULETTE_PUNISH_COST`: le toca el peor campeón para su rol + build
+  maldita) y apostar si ganan. Cierra a los `ROULETTE_BET_MINUTES` o cuando
+  arranca la partida. Si la ingesta ve que jugaste el campeón y la posición
+  que te tocaron, cobrás `ROULETTE_BONUS` (doble si te castigaron); la build
+  no se puede chequear.
 - **`/daily`**: `DAILY_BASE` puntos por día, +`DAILY_STEP` por cada día
   seguido de racha (tope `DAILY_MAX`). Saltear un día la corta.
 - **`/misiones`**: cada lunes salen `MISSIONS_PER_WEEK` misiones del
@@ -394,6 +405,11 @@ más + partidas de LoL con el grupo) y los gastan en `/tienda`:
 | `DUEL_ACCEPT_MINUTES` / `DUEL_MATCH_HOURS` | `10` / `24` | Para aceptar / para jugar la partida del duelo. |
 | `BOUNTY_DAYS` | `3` | Vencimiento de una recompensa sin partida. |
 | `WEEKLY_BETS_ENABLED` / `WEEKLY_BET_CLOSE_DAYS` | `true` / `2` | Apuestas semanales y cuántos días desde el lunes se puede apostar. |
+| `ROULETTE_ENABLED` / `ROULETTE_FILE` | `true` / `data/roulette.json` | Ruleta y sus tiradas vivas. |
+| `ROULETTE_REROLL_COST` / `ROULETTE_PUNISH_COST` / `ROULETTE_BONUS` | `15` / `40` / `30` | Re-tirar (se multiplica por cada re-tirada), castigar, bonus por cumplir. |
+| `ROULETTE_BET_MINUTES` / `ROULETTE_HOURS` | `20` / `3` | Cuánto queda abierta / cuánto dura el bonus. |
+| `ROULETTE_CURSED_CHANCE` | `0.1` | Chance de build maldita. |
+| `DDRAGON_LANG` | `es_AR` | Idioma de campeones e ítems de Data Dragon. |
 | `DAILY_BASE` / `DAILY_STEP` / `DAILY_MAX` | `10` / `5` / `50` | Puntos del `/daily` y su racha. |
 | `MISSIONS_ENABLED` / `MISSIONS_FILE` | `true` / `data/missions.json` | Misiones semanales. |
 | `MISSIONS_PER_WEEK` / `MISSIONS_REWARD` | `4` / `50` | Cuántas por semana y cuánto paga cada una. |

@@ -99,6 +99,11 @@ class HelpCog(commands.Cog):
                     if self.bot.get_cog("PredictionsCog") is not None and s.props_enabled:
                         bets.append("🎯 *Con cada partida del grupo sale también un menú para apostar quién carrea, "
                                     "quién trollea, muertes, duración y primera sangre.*")
+                    if self.bot.get_cog("RouletteCog") is not None:
+                        bets.append(f"`/ruleta [modo]` — rol, campeón y build random para los de tu canal de voz. "
+                                    f"Re-tirar ({s.roulette_reroll_cost}+ pts), castigar a otro "
+                                    f"({s.roulette_punish_cost} pts), apostar si ganan, y {s.roulette_bonus} pts "
+                                    f"si jugás lo que te tocó.")
                     if s.weekly_bets_enabled:
                         bets.append("📅 *Los lunes se abre la apuesta de quién es el troll y el carry de la semana.*")
                     embed.add_field(name="🎲 Apuestas", value="\n".join(bets), inline=False)

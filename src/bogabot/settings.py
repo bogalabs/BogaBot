@@ -188,6 +188,16 @@ class Settings:
     bounty_days: int
     weekly_bets_enabled: bool
     weekly_bet_close_days: int
+    # Ruleta (rol, campeón y build random)
+    roulette_enabled: bool
+    roulette_file: str
+    roulette_reroll_cost: int
+    roulette_punish_cost: int
+    roulette_bonus: int
+    roulette_bet_minutes: int
+    roulette_hours: int
+    roulette_cursed_chance: float
+    ddragon_lang: str
 
     @classmethod
     def load(cls) -> "Settings":
@@ -312,4 +322,13 @@ class Settings:
             bounty_days=max(1, int(os.getenv("BOUNTY_DAYS", "3"))),
             weekly_bets_enabled=_flag("WEEKLY_BETS_ENABLED"),
             weekly_bet_close_days=min(6, max(1, int(os.getenv("WEEKLY_BET_CLOSE_DAYS", "2")))),
+            roulette_enabled=_flag("ROULETTE_ENABLED"),
+            roulette_file=os.getenv("ROULETTE_FILE", "data/roulette.json"),
+            roulette_reroll_cost=max(0, int(os.getenv("ROULETTE_REROLL_COST", "15"))),
+            roulette_punish_cost=max(0, int(os.getenv("ROULETTE_PUNISH_COST", "40"))),
+            roulette_bonus=max(0, int(os.getenv("ROULETTE_BONUS", "30"))),
+            roulette_bet_minutes=max(1, int(os.getenv("ROULETTE_BET_MINUTES", "20"))),
+            roulette_hours=max(1, int(os.getenv("ROULETTE_HOURS", "3"))),
+            roulette_cursed_chance=min(1.0, max(0.0, float(os.getenv("ROULETTE_CURSED_CHANCE", "0.1")))),
+            ddragon_lang=os.getenv("DDRAGON_LANG", "es_AR"),
         )

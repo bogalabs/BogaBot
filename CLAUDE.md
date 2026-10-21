@@ -76,6 +76,7 @@ src/bogabot/modules/predictions/# predicciones con puntos sobre partidas en vivo
                                 #   + market.py (mercado genérico), props.py (apuestas sobre la partida), betting.py (UI compartida)
 src/bogabot/modules/bets/       # duelos 1v1, recompensas y apuestas semanales (logic.py puro + store + cog)
 src/bogabot/modules/missions/   # misiones semanales (logic.py catálogo, service.py progreso = bot.missions, cog /misiones)
+src/bogabot/modules/roulette/   # /ruleta: logic.py puro (roles/campeones/builds), ddragon.py (Data Dragon), store + cog
 config/scoring.yaml         # fórmula del ranking, editable sin tocar código
 config/trolls.yaml          # umbrales/puntos del detector de trolls, editable sin tocar código
 config/carries.yaml         # umbrales/puntos del detector de carreadas
@@ -304,6 +305,14 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   los módulos reportan con `progress(uids, code, n)` sin chequear nada (si
   están apagadas no hace nada). Misiones de la semana = sample determinista
   con la semana como semilla. La racha del `/daily` vive en `PointsStore`.
+- **Ruleta:** campeones e ítems salen de **Data Dragon** (CDN público, sin
+  key; `roulette/ddragon.py`, caché 12 h, si falla sigue con lo viejo). El
+  encaje campeón-rol es por tags (`ROLE_FIT`) porque Data Dragon no trae
+  posiciones; los temas de build salen de los tags de los ítems
+  (`item_themes`). Se filtran los ids largos (variantes de Arena/misión de
+  support). "Cumplió" = mismo `champion` (sin mayúsculas: Fiddlesticks) y
+  `position` en el `MatchRecord`; la build no se chequea (no guardamos
+  ítems). Cierra con `PredictionsCog.add_game_listener` como las recompensas.
 - **Logging a Discord:** `DiscordLogHandler` (en `core/`) se engancha al
   logger `"bogabot"` (no a `discord.*`, para no capturar el ruido de la
   librería) cuando hay `LOG_USER_ID` o `LOG_CHANNEL_ID`. Solo encola texto
