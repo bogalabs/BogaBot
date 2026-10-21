@@ -302,6 +302,11 @@ class TrollService:
             s.previous_index = previous.get(s.discord_id)
         return rows
 
+    async def standings_between(self, since: datetime, until: datetime) -> list[TrollStanding]:
+        """Ranking de una ventana arbitraria (sin tendencia). Lo usan las
+        apuestas semanales para resolver una semana ya cerrada."""
+        return self._aggregate(await self._matches.get_matches(since, until))
+
     def tier(self, index: float) -> str:
         """Categoría según el índice (relativa al umbral de alerta)."""
         alert = self.config.troll_level

@@ -10,6 +10,8 @@ Cómo se ganan:
   - LoL: por cada partida nueva que ingiere el módulo LoL (listener de
     IngestService), POINTS_LOL_GAME por jugarla + POINTS_LOL_WIN si la ganó.
     El dedup de la ingesta garantiza que cada partida se paga una sola vez.
+  - /daily: DAILY_BASE por día, +DAILY_STEP por cada día seguido de racha
+    (tope DAILY_MAX). Saltear un día corta la racha.
 """
 from __future__ import annotations
 
@@ -32,6 +34,24 @@ log = logging.getLogger(__name__)
 
 def has_role(member: discord.Member, role_id: int | None) -> bool:
     return role_id is not None and any(r.id == role_id for r in member.roles)
+
+
+async def user_has_role(bot: "BogaBot", user_id: int, role_id: int | None) -> bool:
+    """`has_role` a partir de un discord_id (busca al miembro en los guilds
+    del bot; sin el intent de miembros puede no estar en caché)."""
+    gid = bot.settings.guild_id
+    for guild in bot.guilds:
+        if gid and guild.id != gid:
+            continue
+        member = guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(user_id)
+            except discord.HTTPException:
+                continue
+        if has_role(member, role_id):
+            return True
+    return False
 
 
 class PointsCog(commands.Cog):
@@ -77,6 +97,8 @@ class PointsCog(commands.Cog):
                         eligible.append(m.id)
         if not eligible:
             return
+        # El tope diario es de puntos: el tiempo en voz cuenta igual para las misiones.
+        await self.bot.missions.progress(eligible, "voice", s.points_voice_interval_minutes)
         day = dt.datetime.now(get_tz(s.timezone)).date().isoformat()
         awarded = await self.points.add_voice(eligible, s.points_voice_amount, day, s.points_voice_daily_cap)
         if awarded:
@@ -90,22 +112,10 @@ class PointsCog(commands.Cog):
         s = self.bot.settings
         amounts: dict[int, int] = {}
         for r in records:
-            if not await self._discord_id_has_role(r.discord_id):
+            if not await user_has_role(self.bot, r.discord_id, s.points_role_id):
                 continue
             amounts[r.discord_id] = amounts.get(r.discord_id, 0) + s.points_lol_game + (s.points_lol_win if r.win else 0)
         await self.points.add(amounts, "partidas LoL")
-
-    async def _discord_id_has_role(self, user_id: int) -> bool:
-        for guild in self._guilds():
-            member = guild.get_member(user_id)
-            if member is None:
-                try:
-                    member = await guild.fetch_member(user_id)
-                except discord.HTTPException:
-                    continue
-            if has_role(member, self.bot.settings.points_role_id):
-                return True
-        return False
 
     # ------------------------------------------------------------------ #
     # Slash commands
@@ -122,12 +132,37 @@ class PointsCog(commands.Cog):
             f"**Cómo se ganan** (con el rol <@&{s.points_role_id}>):\n"
             f"• {s.points_voice_amount} cada {s.points_voice_interval_minutes} min en voz con alguien más "
             f"(máx {s.points_voice_daily_cap}/día)\n"
-            f"• {s.points_lol_game} por partida de LoL con el grupo, +{s.points_lol_win} si ganás\n\n"
+            f"• {s.points_lol_game} por partida de LoL con el grupo, +{s.points_lol_win} si ganás\n"
+            f"• `/daily`: {s.daily_base} por día, +{s.daily_step} por cada día seguido (máx {s.daily_max})\n"
+            f"• `/misiones`: {self.bot.missions.reward} por cada misión de la semana\n\n"
             f"**Canje:** `/canjear-sonido` → {s.sound_redeem_cost} pts, sonido de hasta "
             f"{s.sound_redeem_max_seconds} s por {s.sound_redeem_days} días."
         )
         await interaction.response.send_message(text, ephemeral=True,
                                                 allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.command(name="daily", description="Reclamá tus puntos del día (más si no cortás la racha).")
+    async def daily(self, interaction: discord.Interaction) -> None:
+        s = self.bot.settings
+        member = interaction.user
+        if not isinstance(member, discord.Member) or not has_role(member, s.points_role_id):
+            await interaction.response.send_message("Necesitás el rol de Boguero para juntar puntos.", ephemeral=True)
+            return
+        today = dt.datetime.now(get_tz(s.timezone)).date()
+        claimed = await self.points.claim_daily(member.id, today.isoformat(),
+                                                (today - dt.timedelta(days=1)).isoformat(),
+                                                s.daily_base, s.daily_step, s.daily_max)
+        if claimed is None:
+            await interaction.response.send_message("Ya reclamaste hoy. Volvé mañana (no cortes la racha 🔥).",
+                                                    ephemeral=True)
+            return
+        amount, streak = claimed
+        await self.bot.missions.progress([member.id], "daily")
+        fire = "🔥" * min(streak, 7)
+        tomorrow = min(s.daily_max, s.daily_base + s.daily_step * streak)
+        await interaction.response.send_message(
+            f"📅 +**{amount}** puntos. Racha: **{streak}** día(s) {fire}\n"
+            f"Mañana son {tomorrow} si volvés. Saldo: **{self.points.balance(member.id)}**.", ephemeral=True)
 
     @app_commands.command(name="puntos-top", description="Ranking de puntos del server.")
     async def puntos_top(self, interaction: discord.Interaction) -> None:

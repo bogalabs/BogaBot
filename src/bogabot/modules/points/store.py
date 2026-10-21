@@ -75,6 +75,24 @@ class PointsStore:
                 await self._save()
         return awarded
 
+    async def claim_daily(self, user_id: int, day: str, yesterday: str, base: int, step: int,
+                          cap: int) -> tuple[int, int] | None:
+        """Reclama el /daily de `day`. La racha sigue si el último reclamo fue
+        `yesterday`; si no, vuelve a 1. Paga base + step por cada día extra de
+        racha, con tope `cap`. Devuelve (puntos, racha) o None si ya reclamó hoy."""
+        async with self._lock:
+            u = self._user(user_id)
+            last = u.get("daily_day")
+            if last == day:
+                return None
+            streak = int(u.get("daily_streak", 0)) + 1 if last == yesterday else 1
+            amount = min(cap, base + step * (streak - 1))
+            u["daily_day"], u["daily_streak"] = day, streak
+            u["balance"] = u.get("balance", 0) + amount
+            log.info("Daily de %s: +%d (racha %d) -> %d.", user_id, amount, streak, u["balance"])
+            await self._save()
+            return amount, streak
+
     async def spend(self, user_id: int, amount: int, reason: str) -> bool:
         """Descuenta `amount` si alcanza el saldo. Devuelve False si no alcanza."""
         async with self._lock:

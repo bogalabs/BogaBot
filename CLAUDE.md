@@ -73,6 +73,9 @@ src/bogabot/
 src/bogabot/modules/sounds/     # /sonido, canje al soundboard, sonidos por evento (random apagado por defecto)
 src/bogabot/modules/points/     # puntos (store + cog) y tienda de canjes (shop.py + shop_store.py)
 src/bogabot/modules/predictions/# predicciones con puntos sobre partidas en vivo (logic.py puro + store + cog)
+                                #   + market.py (mercado genérico), props.py (apuestas sobre la partida), betting.py (UI compartida)
+src/bogabot/modules/bets/       # duelos 1v1, recompensas y apuestas semanales (logic.py puro + store + cog)
+src/bogabot/modules/missions/   # misiones semanales (logic.py catálogo, service.py progreso = bot.missions, cog /misiones)
 config/scoring.yaml         # fórmula del ranking, editable sin tocar código
 config/trolls.yaml          # umbrales/puntos del detector de trolls, editable sin tocar código
 config/carries.yaml         # umbrales/puntos del detector de carreadas
@@ -284,6 +287,23 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   `match_id` (`<platformId>_<gameId>`), reparto parimutuel. Sin resolver en
   3 h (remake) → se cancela y se devuelve todo. Tienda y predicciones solo
   se cargan si hay `POINTS_ROLE_ID`.
+- **Mercados de apuestas:** todo lo que no es ganar/perder apuesta sobre un
+  `predictions/market.py::Market` (una apuesta por usuario, reparto
+  parimutuel, `forbidden` = opciones prohibidas por usuario para que nadie
+  gane perdiendo a propósito). La UI y el cobro son compartidos
+  (`predictions/betting.py::charge_bet`, que también suma a la misión
+  "bets"). Las **props** (quién carrea/trollea, muertes, duración, primera
+  sangre) viven en `Prediction.markets` y se resuelven con `GameFacts`
+  (armado en el cog con los detectores); sin dato → se devuelve.
+  **Duelos/recompensas/semanales** en `modules/bets/` (`BETS_FILE`): las
+  recompensas cierran apuestas cuando `PredictionsCog.add_game_listener`
+  avisa que el apuntado arrancó partida con el grupo (por eso `BetsCog` se
+  carga después de `PredictionsCog`); las semanales se resuelven con
+  `TrollService.standings_between` de la semana cerrada.
+- **Misiones y /daily:** `bot.missions` (`MissionsService`) existe siempre;
+  los módulos reportan con `progress(uids, code, n)` sin chequear nada (si
+  están apagadas no hace nada). Misiones de la semana = sample determinista
+  con la semana como semilla. La racha del `/daily` vive en `PointsStore`.
 - **Logging a Discord:** `DiscordLogHandler` (en `core/`) se engancha al
   logger `"bogabot"` (no a `discord.*`, para no capturar el ruido de la
   librería) cuando hay `LOG_USER_ID` o `LOG_CHANNEL_ID`. Solo encola texto

@@ -13,6 +13,8 @@ from discord.ext import commands, tasks
 
 from bogabot.core.command_tree import BogaCommandTree
 from bogabot.core.discord_log_handler import DiscordLogHandler
+from bogabot.modules.bets.cog import BetsCog
+from bogabot.modules.bets.store import BetsStore
 from bogabot.modules.help.cog import HelpCog
 from bogabot.modules.lol.cog import LolCog
 from bogabot.modules.lol.ingest import IngestService
@@ -21,6 +23,8 @@ from bogabot.modules.lol.riot_key import RiotKeyCog, RiotKeyStore
 from bogabot.modules.lol.carries import CARRY_FLAVOR
 from bogabot.modules.lol.scheduler import LolScheduler
 from bogabot.modules.lol.trolls import TrollService
+from bogabot.modules.missions.cog import MissionsCog
+from bogabot.modules.missions.service import MissionsService
 from bogabot.modules.points.cog import PointsCog
 from bogabot.modules.points.shop import ShopCog
 from bogabot.modules.points.shop_store import ShopStore
@@ -74,6 +78,13 @@ class BogaBot(commands.Bot):
         self.points = PointsStore(settings.points_file)
         self.shop = ShopStore(settings.shop_file)
         self.predictions = PredictionStore(settings.predictions_file)
+        self.bets = BetsStore(settings.bets_file)
+        # Siempre existe (los módulos reportan progreso sin chequear nada);
+        # sin rol de puntos o con MISSIONS_ENABLED=false no hace nada.
+        self.missions = MissionsService(
+            settings.missions_file, self.points,
+            enabled=settings.missions_enabled and settings.points_role_id is not None,
+            timezone=settings.timezone, per_week=settings.missions_per_week, reward=settings.missions_reward)
 
         # --- Servicios de dominio (dependen solo de interfaces) ---
         self.ingest = IngestService(self.riot, self.storage, self.storage, settings)
@@ -100,6 +111,10 @@ class BogaBot(commands.Bot):
             await self.add_cog(ShopCog(self, self.shop))
             if self.settings.predictions_enabled:
                 await self.add_cog(PredictionsCog(self, self.predictions))
+            # Después de predicciones: las recompensas se cuelgan de sus partidas en vivo.
+            await self.add_cog(BetsCog(self, self.bets))
+            if self.missions.enabled:
+                await self.add_cog(MissionsCog(self))
         await self.add_cog(HelpCog(self))
 
         if self._log_to_discord:

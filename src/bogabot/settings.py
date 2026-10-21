@@ -39,6 +39,10 @@ def _require_int(name: str) -> int:
         raise ConfigError(f"La variable '{name}' debe ser un número entero, no '{raw}'.") from exc
 
 
+def _flag(name: str, default: str = "true") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes")
+
+
 def _optional_int(name: str) -> int | None:
     raw = os.getenv(name)
     if not raw:
@@ -165,6 +169,25 @@ class Settings:
     prediction_close_minutes: int
     prediction_min_bet: int
     prediction_max_bet: int
+    props_enabled: bool  # apuestas sobre la partida (quién carrea, quién trollea, etc.)
+    # /daily con racha
+    daily_base: int
+    daily_step: int
+    daily_max: int
+    # Misiones semanales
+    missions_enabled: bool
+    missions_file: str
+    missions_per_week: int
+    missions_reward: int
+    missions_channel_id: int | None  # anuncios; si falta, BOT_CHANNEL_ID
+    # Duelos, recompensas y apuestas semanales
+    bets_file: str
+    duel_max_bet: int
+    duel_accept_minutes: int
+    duel_match_hours: int
+    bounty_days: int
+    weekly_bets_enabled: bool
+    weekly_bet_close_days: int
 
     @classmethod
     def load(cls) -> "Settings":
@@ -273,4 +296,20 @@ class Settings:
             prediction_close_minutes=max(1, int(os.getenv("PREDICTION_CLOSE_MINUTES", "8"))),
             prediction_min_bet=max(1, int(os.getenv("PREDICTION_MIN_BET", "5"))),
             prediction_max_bet=max(1, int(os.getenv("PREDICTION_MAX_BET", "200"))),
+            props_enabled=_flag("PROPS_ENABLED"),
+            daily_base=max(0, int(os.getenv("DAILY_BASE", "10"))),
+            daily_step=max(0, int(os.getenv("DAILY_STEP", "5"))),
+            daily_max=max(0, int(os.getenv("DAILY_MAX", "50"))),
+            missions_enabled=_flag("MISSIONS_ENABLED"),
+            missions_file=os.getenv("MISSIONS_FILE", "data/missions.json"),
+            missions_per_week=max(1, int(os.getenv("MISSIONS_PER_WEEK", "4"))),
+            missions_reward=max(0, int(os.getenv("MISSIONS_REWARD", "50"))),
+            missions_channel_id=_optional_int("MISSIONS_CHANNEL_ID"),
+            bets_file=os.getenv("BETS_FILE", "data/bets.json"),
+            duel_max_bet=max(1, int(os.getenv("DUEL_MAX_BET", "500"))),
+            duel_accept_minutes=max(1, int(os.getenv("DUEL_ACCEPT_MINUTES", "10"))),
+            duel_match_hours=max(1, int(os.getenv("DUEL_MATCH_HOURS", "24"))),
+            bounty_days=max(1, int(os.getenv("BOUNTY_DAYS", "3"))),
+            weekly_bets_enabled=_flag("WEEKLY_BETS_ENABLED"),
+            weekly_bet_close_days=min(6, max(1, int(os.getenv("WEEKLY_BET_CLOSE_DAYS", "2")))),
         )

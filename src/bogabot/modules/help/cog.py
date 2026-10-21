@@ -74,6 +74,9 @@ class HelpCog(commands.Cog):
                 "`/tienda` 🔒 — en qué podés gastarlos."
             )
             if can_earn:
+                value += "\n`/daily` 🔒 — tus puntos del día (más si no cortás la racha)."
+                if self.bot.get_cog("MissionsCog") is not None:
+                    value += f"\n`/misiones` 🔒 — las misiones de la semana ({s.missions_reward} pts cada una)."
                 value += (
                     f"\n`/canjear-rol <nombre> <color>` 🔒 — rol propio por {s.shop_role_days} días "
                     f"({s.shop_role_cost} pts).\n"
@@ -85,9 +88,23 @@ class HelpCog(commands.Cog):
                 )
                 if self.bot.get_cog("PredictionsCog") is not None:
                     value += "\n🔮 *Cuando el grupo arranca una partida, apostá con los botones del canal de partidas.*"
+                embed.add_field(name="💰 Puntos", value=value, inline=False)
+                if self.bot.get_cog("BetsCog") is not None:
+                    bets = [
+                        f"`/desafio <usuario> <puntos> <modo>` — duelo 1v1: moneda, o mejor KDA/carreada en la "
+                        f"próxima partida juntos (hasta {s.duel_max_bet} pts).",
+                        "`/recompensa <usuario> <puntos> <tipo>` — poné puntos a que alguien trollea (o carrea) la "
+                        "próxima; los demás apuestan a favor o en contra.",
+                    ]
+                    if self.bot.get_cog("PredictionsCog") is not None and s.props_enabled:
+                        bets.append("🎯 *Con cada partida del grupo sale también un menú para apostar quién carrea, "
+                                    "quién trollea, muertes, duración y primera sangre.*")
+                    if s.weekly_bets_enabled:
+                        bets.append("📅 *Los lunes se abre la apuesta de quién es el troll y el carry de la semana.*")
+                    embed.add_field(name="🎲 Apuestas", value="\n".join(bets), inline=False)
             else:
                 value += f"\n*(Para juntar puntos necesitás el rol <@&{s.points_role_id}>.)*"
-            embed.add_field(name="💰 Puntos", value=value, inline=False)
+                embed.add_field(name="💰 Puntos", value=value, inline=False)
 
         sounds = [
             "`/sonido [nombre]` — el bot entra a tu canal de voz y tira un sonido.",

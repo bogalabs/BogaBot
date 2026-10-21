@@ -340,6 +340,32 @@ más + partidas de LoL con el grupo) y los gastan en `/tienda`:
   los que acertaron según lo que puso cada uno. Los que juegan solo pueden
   apostar a su equipo. Si la partida no aparece en 3 h (remake), se devuelve
   todo.
+- **Apuestas sobre la partida** (`PROPS_ENABLED`): junto con la predicción
+  sale un menú con más preguntas: quién carrea, si cada uno trollea, si
+  cada uno muere más de 7 (10 en ARAM), si dura más de 30 min (20 en ARAM)
+  y si el grupo se lleva la primera sangre. Abren y cierran con la
+  predicción. Para que no sea plata fácil, los que juegan no pueden apostar
+  a que ellos trollean o mueren mucho, a "nadie carrea", ni a la duración.
+  Si falta un dato para resolver una pregunta, se devuelve lo apostado.
+- **`/desafio <usuario> <puntos> <modo>`**: duelo 1v1. El otro acepta con un
+  botón (`DUEL_ACCEPT_MINUTES`). Moneda se define al toque; "mejor KDA" o
+  "más carreada" se definen con la próxima partida que jueguen juntos (si
+  no juegan en `DUEL_MATCH_HOURS`, o empatan, se devuelve todo).
+- **`/recompensa <usuario> <puntos> <tipo>`**: "pongo X a que fulano trollea
+  (o carrea) la próxima". Los demás apuestan Sí o No con botones; si ya hay
+  una abierta sobre esa persona, se suma al Sí. Las apuestas cierran cuando
+  el bot lo ve arrancar una partida con el grupo y se resuelve con esa. El
+  apuntado solo puede apostar a su favor. Vence en `BOUNTY_DAYS` días.
+- **Apuestas semanales** (`WEEKLY_BETS_ENABLED`): los lunes sale en el canal
+  de predicciones quién va a ser el troll y el carry de la semana (#1 de
+  `/trolls` y `/carries`). Cierran a los `WEEKLY_BET_CLOSE_DAYS` días y se
+  pagan el lunes siguiente. Nadie puede apostar a ser él el troll.
+- **`/daily`**: `DAILY_BASE` puntos por día, +`DAILY_STEP` por cada día
+  seguido de racha (tope `DAILY_MAX`). Saltear un día la corta.
+- **`/misiones`**: cada lunes salen `MISSIONS_PER_WEEK` misiones del
+  catálogo (`modules/missions/logic.py`: jugar o ganar partidas con el grupo,
+  carrear, jugar limpio, horas en voz, apostar, hacer el /daily). Cada una
+  paga `MISSIONS_REWARD` y se anuncia en `MISSIONS_CHANNEL_ID`.
 - **Sonidos por evento:** si seteás `SOUNDS_EVENT_PAPELON` y/o
   `SOUNDS_EVENT_VICTORY` (nombres de `/sonidos`), cuando termina **recién**
   una partida con papelón o victoria épica suena ese audio solo en el canal
@@ -361,7 +387,17 @@ más + partidas de LoL con el grupo) y los gastan en `/tienda`:
 | `PREDICTION_CHANNEL_ID` | `MATCH_NOTIFY_CHANNEL_ID` | Dónde se abren. |
 | `PREDICTION_POLL_MINUTES` | `3` | Cada cuánto se buscan partidas en vivo. |
 | `PREDICTION_CLOSE_MINUTES` | `8` | Hasta qué minuto de partida se puede apostar. |
-| `PREDICTION_MIN_BET` / `PREDICTION_MAX_BET` | `5` / `200` | Rango de apuesta. |
+| `PREDICTION_MIN_BET` / `PREDICTION_MAX_BET` | `5` / `200` | Rango de apuesta (también props, recompensas y semanales). |
+| `PROPS_ENABLED` | `true` | Apuestas sobre la partida junto con cada predicción. |
+| `BETS_FILE` | `data/bets.json` | Duelos, recompensas y apuestas semanales vivos. |
+| `DUEL_MAX_BET` | `500` | Máximo por duelo (cada uno). |
+| `DUEL_ACCEPT_MINUTES` / `DUEL_MATCH_HOURS` | `10` / `24` | Para aceptar / para jugar la partida del duelo. |
+| `BOUNTY_DAYS` | `3` | Vencimiento de una recompensa sin partida. |
+| `WEEKLY_BETS_ENABLED` / `WEEKLY_BET_CLOSE_DAYS` | `true` / `2` | Apuestas semanales y cuántos días desde el lunes se puede apostar. |
+| `DAILY_BASE` / `DAILY_STEP` / `DAILY_MAX` | `10` / `5` / `50` | Puntos del `/daily` y su racha. |
+| `MISSIONS_ENABLED` / `MISSIONS_FILE` | `true` / `data/missions.json` | Misiones semanales. |
+| `MISSIONS_PER_WEEK` / `MISSIONS_REWARD` | `4` / `50` | Cuántas por semana y cuánto paga cada una. |
+| `MISSIONS_CHANNEL_ID` | `BOT_CHANNEL_ID` | Dónde se anuncian las completadas (sin canal, no se anuncian). |
 
 ## Detector de trolls 🤡
 

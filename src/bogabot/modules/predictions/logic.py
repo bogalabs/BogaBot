@@ -9,11 +9,16 @@ Tiene dos opciones ("a" y "b"), cada una atada a un equipo (100 azul /
 Reparto estilo Twitch (parimutuel): el pozo total se reparte entre los que
 acertaron, proporcional a lo que puso cada uno. Si nadie acertó, el pozo se
 pierde. Los que juegan la partida solo pueden apostar a que gana su equipo.
+
+Además de ganar/perder, cada predicción lleva sus apuestas sobre la partida
+(`markets`, ver props.py), que abren y cierran junto con ella.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+
+from bogabot.modules.predictions.market import Bet, Market, parimutuel
 
 OPTIONS = ("a", "b")
 BLUE, RED = 100, 200
@@ -21,12 +26,6 @@ BLUE, RED = 100, 200
 
 def other_team(team_id: int) -> int:
     return RED if team_id == BLUE else BLUE
-
-
-@dataclass
-class Bet:
-    option: str
-    amount: int
 
 
 @dataclass
@@ -43,6 +42,8 @@ class Prediction:
     option_teams: dict[str, int]
     bets: dict[int, Bet] = field(default_factory=dict)
     closed: bool = False
+    markets: dict[str, Market] = field(default_factory=dict)  # apuestas sobre la partida
+    props_message_id: int = 0
 
     # --- Armado ---------------------------------------------------------------
     @classmethod
@@ -102,12 +103,7 @@ class Prediction:
     def payouts(self, winner: str) -> dict[int, int]:
         """Cuánto cobra cada ganador (pozo total repartido en proporción a lo
         apostado). Sin ganadores, nadie cobra."""
-        total = sum(b.amount for b in self.bets.values())
-        winners = {uid: b.amount for uid, b in self.bets.items() if b.option == winner}
-        win_total = sum(winners.values())
-        if not win_total:
-            return {}
-        return {uid: amount * total // win_total for uid, amount in winners.items()}
+        return parimutuel(self.bets, winner)
 
     # --- Serialización ------------------------------------------------------
     def to_dict(self) -> dict:
@@ -119,6 +115,8 @@ class Prediction:
             "option_labels": self.option_labels, "option_teams": self.option_teams,
             "bets": {str(k): {"option": b.option, "amount": b.amount} for k, b in self.bets.items()},
             "closed": self.closed,
+            "markets": [m.to_dict() for m in self.markets.values()],
+            "props_message_id": self.props_message_id,
         }
 
     @classmethod
@@ -131,4 +129,6 @@ class Prediction:
             option_labels=dict(d["option_labels"]), option_teams={k: int(v) for k, v in d["option_teams"].items()},
             bets={int(k): Bet(b["option"], int(b["amount"])) for k, b in d.get("bets", {}).items()},
             closed=bool(d.get("closed", False)),
+            markets={m["key"]: Market.from_dict(m) for m in d.get("markets", [])},
+            props_message_id=int(d.get("props_message_id", 0)),
         )
