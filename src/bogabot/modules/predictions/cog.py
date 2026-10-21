@@ -43,7 +43,7 @@ from bogabot.modules.predictions.market import Market
 from bogabot.modules.predictions.props import GameFacts, build_props, resolve_prop
 from bogabot.modules.predictions.store import PredictionStore
 from bogabot.riot.client import RiotApiError, RiotAuthError
-from bogabot.riot.mapper import queue_name
+from bogabot.riot.mapper import QUEUE_NAMES, queue_name
 
 if TYPE_CHECKING:
     from bogabot.bot import BogaBot
@@ -304,6 +304,9 @@ class PredictionsCog(commands.Cog):
         await self.store.put(p)
         log.info("Predicción abierta para %s (%d vinculados, %d props).", p.match_id, len(group),
                  len(p.markets))
+        sounds = self.bot.get_cog("SoundsCog")
+        if sounds is not None:
+            sounds.announce_game_start(list(group), QUEUE_NAMES.get(p.queue_id, "LoL"), channel.name)
 
     # ------------------------------------------------------------------ #
     # Apuestas

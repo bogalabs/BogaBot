@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 _NO_MENTIONS = discord.AllowedMentions.none()
+_CHANNELS = (discord.TextChannel, discord.VoiceChannel, discord.Thread)  # donde puede quedar la tirada
 _ACTIONS = {"re": ("🔄 Re-tirar el mío", discord.ButtonStyle.secondary),
             "pun": ("😈 Castigar a alguien", discord.ButtonStyle.danger),
             "yes": ("🏆 Ganan", discord.ButtonStyle.success),
@@ -68,6 +69,43 @@ class RouletteButton(discord.ui.DynamicItem[discord.ui.Button], template=r"rl:(?
         cog = interaction.client.get_cog("RouletteCog")  # type: ignore[union-attr]
         if cog is not None:
             await cog.on_click(interaction, self.spin_id, self.action)
+
+
+class PlayerPicker(discord.ui.View):
+    """Efímero para quien tiró /ruleta: elige quiénes del canal de voz juegan
+    (máx. 5) y gira. Si son 5 o menos vienen todos marcados."""
+
+    def __init__(self, cog: "RouletteCog", owner_id: int, members: list[discord.Member], mode: str) -> None:
+        super().__init__(timeout=300)
+        self.cog, self.owner_id, self.mode = cog, owner_id, mode
+        everyone = len(members) <= len(ROLES)
+        self.selected = [m.id for m in members if everyone or m.id == owner_id]
+        self.select = discord.ui.Select(
+            placeholder="¿Quiénes juegan? (máx. 5)", min_values=1, max_values=min(len(ROLES), len(members)),
+            options=[discord.SelectOption(label=m.display_name[:100], value=str(m.id), default=m.id in self.selected)
+                     for m in members])
+        self.select.callback = self._on_select
+        self.add_item(self.select)
+        spin = discord.ui.Button(label="🎰 Girar", style=discord.ButtonStyle.success)
+        spin.callback = self._on_spin
+        self.add_item(spin)
+
+    def prompt(self) -> str:
+        return (f"🎰 **{MODES.get(self.mode, self.mode)}** · elegí quiénes juegan (máx. 5) y tocá **Girar**.\n"
+                f"Ahora: {len(self.selected)} seleccionado(s).")
+
+    async def _on_select(self, interaction: discord.Interaction) -> None:
+        self.selected = [int(v) for v in self.select.values]
+        for option in self.select.options:
+            option.default = int(option.value) in self.selected
+        await interaction.response.edit_message(content=self.prompt(), view=self)
+
+    async def _on_spin(self, interaction: discord.Interaction) -> None:
+        if not self.selected:
+            await interaction.response.edit_message(content="Elegí al menos uno. " + self.prompt(), view=self)
+            return
+        self.stop()
+        await self.cog.spin_for(interaction, self.selected, self.mode)
 
 
 class RouletteCog(commands.Cog):
@@ -137,7 +175,7 @@ class RouletteCog(commands.Cog):
 
     async def _edit(self, spin: Spin, **kwargs) -> None:
         channel = self.bot.get_channel(spin.channel_id)
-        if not isinstance(channel, discord.TextChannel) or not spin.message_id:
+        if not isinstance(channel, _CHANNELS) or not spin.message_id:
             return
         try:
             await channel.get_partial_message(spin.message_id).edit(allowed_mentions=_NO_MENTIONS, **kwargs)
@@ -169,19 +207,25 @@ class RouletteCog(commands.Cog):
             await interaction.response.send_message("Metete en un canal de voz con los que van a jugar. 🎙️",
                                                     ephemeral=True)
             return
-        players = [m.id for m in voice.members if not m.bot]
-        if len(players) > len(ROLES):
-            await interaction.response.send_message(
-                f"Hay {len(players)} en {voice.mention} y la ruleta es para 5 como mucho.", ephemeral=True)
+        humans = [m for m in voice.members if not m.bot][:25]  # lo que entra en un desplegable
+        picker = PlayerPicker(self, member.id, humans, modo.value if modo else "normal")
+        await interaction.response.send_message(picker.prompt(), view=picker, ephemeral=True)
+
+    async def spin_for(self, interaction: discord.Interaction, players: list[int], mode: str) -> None:
+        """Gira para `players` (ya elegidos en el `PlayerPicker`) y publica la
+        tirada en el canal donde se usó /ruleta."""
+        await interaction.response.edit_message(content="🎰 Girando...", view=None)
+        channel = interaction.channel
+        if channel is None:
             return
-        await interaction.response.defer(thinking=True)
         try:
             await self.ddragon.ensure()
         except DDragonError as exc:
             log.warning("%s", exc)
-            await interaction.followup.send("No pude bajar los campeones de Riot (Data Dragon). Probá en un rato.")
+            await interaction.edit_original_response(
+                content="No pude bajar los campeones de Riot (Data Dragon). Probá en un rato.")
             return
-        mode = modo.value if modo else "normal"
+        players = list(players)
         self._rng.shuffle(players)
         positions, comfort = await self._history(players)
         roles = assign_roles(players, positions, mode, self._rng)
@@ -195,12 +239,18 @@ class RouletteCog(commands.Cog):
             picks[uid] = pick
         spin = Spin(id=secrets.token_hex(4), created_at=_now(), mode=mode, picks=picks,
                     market=win_market(list(picks)))
-        msg = await interaction.followup.send(embed=self._embed(spin), view=self._view(spin), wait=True,
-                                              allowed_mentions=_NO_MENTIONS)
+        try:
+            msg = await channel.send(f"🎰 Ruleta de <@{interaction.user.id}>", embed=self._embed(spin),
+                                     view=self._view(spin), allowed_mentions=_NO_MENTIONS)
+        except discord.HTTPException as exc:
+            log.warning("No pude publicar la ruleta (%s).", exc)
+            await interaction.edit_original_response(content="No pude publicar la ruleta en este canal.")
+            return
         spin.channel_id, spin.message_id = msg.channel.id, msg.id
         async with self.store.lock:
             self.store.spins[spin.id] = spin
             await self.store.save()
+        await interaction.edit_original_response(content=f"🎰 Listo: {msg.jump_url}")
         log.info("Ruleta %s (%s) para %d jugadores.", spin.id, mode, len(picks))
 
     # ------------------------------------------------------------------ #
@@ -318,7 +368,7 @@ class RouletteCog(commands.Cog):
                     f"(-{cost} pts).", view=None)
         await self._edit(spin, embed=self._embed(spin))
         channel = self.bot.get_channel(spin.channel_id)
-        if isinstance(channel, discord.TextChannel):
+        if isinstance(channel, _CHANNELS):
             await channel.send(f"😈 <@{uid}> castigó a <@{target}>: le toca **{new.champion_name}** en "
                                f"{ROLE_LABELS.get(new.role, new.role)} con {THEMES.get(new.theme, new.theme)}.",
                                allowed_mentions=discord.AllowedMentions(users=[discord.Object(target)]))

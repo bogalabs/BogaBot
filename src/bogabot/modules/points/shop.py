@@ -2,7 +2,9 @@
 un canal de voz. Todo es temporal y se revierte solo (expire_job):
 
   - /canjear-rol <nombre> <color>: rol con nombre y color propios por
-    SHOP_ROLE_DAYS días.
+    SHOP_ROLE_DAYS días. Discord pinta con el color del rol más alto, así
+    que se sube justo debajo del rol más alto del bot; expire_job lo vuelve a
+    subir si otro rol con color le quedó encima (`_ensure_on_top`).
   - /canjear-inmunidad: tu próxima alerta troll (o papelón) no se anuncia.
     Sigue sumando al ranking troll: solo se saltea el aviso. Se engancha como
     filtro de `TrollService` (LoL no sabe de puntos).
@@ -51,6 +53,50 @@ def parse_hex_color(raw: str) -> discord.Colour | None:
         return None
 
 
+def tienda_embed(bot: "BogaBot", user_id: int) -> discord.Embed:
+    """La tienda explicada (la usan /tienda y /ayuda tienda)."""
+    s = bot.settings
+    shop = bot.get_cog("ShopCog")
+    shields = shop.store.shields(user_id) if shop is not None else 0
+    balance = f"Tenés **{bot.points.balance(user_id)}** puntos"
+    if shields:
+        balance += f" y **{shields}** inmunidad(es) troll guardada(s)"
+    embed = discord.Embed(
+        title="🛒 Tienda de puntos",
+        description=(f"{balance}. Todo lo que comprás es **temporal** y se saca solo al vencer; si el bot no "
+                     "puede hacerlo (permisos), te devuelve los puntos.\n"
+                     "¿Cómo juntar más? `/ayuda puntos`."),
+        color=discord.Color.gold())
+    embed.add_field(
+        name=f"🎨 Rol propio — {s.shop_role_cost} pts · {s.shop_role_days} días",
+        value=("`/canjear-rol nombre:PEPO color:#42f548`\nUn rol con el nombre y color que quieras. Se pone "
+               "arriba de tus otros roles para que **se te vea el color** en el chat. Uno activo a la vez."),
+        inline=False)
+    embed.add_field(
+        name=f"🛡️ Inmunidad troll — {s.shop_shield_cost} pts · 1 uso",
+        value=("`/canjear-inmunidad`\nTu próxima trolleada **no se anuncia** en el canal de trolls ni en "
+               "general. Ojo: igual suma al ranking `/trolls`. Se pueden acumular."),
+        inline=False)
+    embed.add_field(
+        name=f"🏷️ Apodo a otro — {s.shop_nick_cost} pts · {s.shop_nick_hours} h",
+        value=("`/canjear-apodo usuario:@alguien apodo:Manco`\nLe cambiás el apodo del server a otro. "
+               "El afectado lo puede sacar con `/vetar-apodo` y a vos se te devuelve la mitad."),
+        inline=False)
+    embed.add_field(
+        name=f"📌 Mensaje fijado — {s.shop_pin_cost} pts · {s.shop_pin_hours} h",
+        value=(f"`/canjear-mensaje texto:...`\nEl bot publica tu mensaje en <#{s.general_channel_id}> y lo "
+               f"fija. Sin menciones, hasta {_MAX_PIN_TEXT} caracteres."),
+        inline=False)
+    embed.add_field(
+        name=f"🔊 Sonido en el soundboard — {s.sound_redeem_cost} pts · {s.sound_redeem_days} días",
+        value=("`/canjear-sonido nombre:grito archivo:(tu audio)`\nTu audio en el soundboard del server para "
+               f"tirarlo cuando quieras. mp3/ogg/wav de hasta {s.sound_redeem_max_seconds} s. "
+               "Lo borrás antes con `/sonido-del`."),
+        inline=False)
+    embed.add_field(name="🎲 ¿Querés multiplicarlos?", value="Apostá: `/ayuda apuestas`.", inline=False)
+    return embed
+
+
 class ShopCog(commands.Cog):
     def __init__(self, bot: "BogaBot", store: ShopStore) -> None:
         self.bot = bot
@@ -95,6 +141,41 @@ class ShopCog(commands.Cog):
         gid = self.bot.settings.guild_id
         return self.bot.get_guild(gid) if gid else (self.bot.guilds[0] if self.bot.guilds else None)
 
+    async def _ensure_on_top(self, guild: discord.Guild, member: discord.Member, role: discord.Role) -> bool:
+        """Sube el rol canjeado justo debajo del rol más alto del bot si otro
+        rol con color del miembro lo tapa (Discord pinta con el color del rol
+        más alto). Devuelve si el color queda visible."""
+        top_other = max((r.position for r in member.roles if r.colour.value and r.id != role.id), default=-1)
+        if role.position > top_other:
+            return True
+        target = guild.me.top_role.position - 1
+        if target < top_other:
+            log.warning("El rol canjeado %s de %s queda tapado: el rol del bot está debajo de sus otros roles "
+                        "con color. Subí el rol del bot en la configuración del server.", role.name, member)
+            return False
+        # Al subirlo, los del medio bajan uno: queda arriba aunque top_other == target.
+        try:
+            await guild.edit_role_positions({role: target}, reason="Rol canjeado: arriba para que se vea el color")
+        except discord.HTTPException as exc:  # el canje vale igual: se reintenta en expire_job
+            log.warning("No pude subir el rol canjeado %s (%s).", role.name, exc)
+            return False
+        return True
+
+    async def _fix_roles(self, guild: discord.Guild) -> None:
+        """Roles canjeados vigentes que quedaron tapados (rol nuevo, alguien
+        movió roles, canjes de antes de este arreglo)."""
+        for effect in self.store.all("role"):
+            role = guild.get_role(int(effect.data["role_id"]))
+            member = guild.get_member(effect.user_id)
+            if member is None:
+                try:
+                    member = await guild.fetch_member(effect.user_id)
+                except discord.HTTPException:
+                    continue
+            if role is None or role not in member.roles:
+                continue
+            await self._ensure_on_top(guild, member, role)
+
     async def _post_public(self, interaction: discord.Interaction, text: str) -> None:
         if isinstance(interaction.channel, discord.abc.Messageable):
             try:
@@ -110,6 +191,7 @@ class ShopCog(commands.Cog):
         guild = self._guild()
         if guild is None:
             return
+        await self._fix_roles(guild)
         for effect in self.store.due(dt.datetime.now(dt.timezone.utc)):
             try:
                 await self._revert(guild, effect)
@@ -149,31 +231,10 @@ class ShopCog(commands.Cog):
     # ------------------------------------------------------------------ #
     # Slash commands
     # ------------------------------------------------------------------ #
-    @app_commands.command(name="tienda", description="Mirá en qué podés gastar tus puntos.")
+    @app_commands.command(name="tienda", description="Qué podés comprar con tus puntos y cómo se usa cada cosa.")
     async def tienda(self, interaction: discord.Interaction) -> None:
-        s = self.bot.settings
-        lines = [
-            f"🔊 `/canjear-sonido` — **{s.sound_redeem_cost}** · tu sonido en el soundboard del server "
-            f"por {s.sound_redeem_days} días.",
-            f"🎨 `/canjear-rol` — **{s.shop_role_cost}** · rol con nombre y color propios por "
-            f"{s.shop_role_days} días.",
-            f"🛡️ `/canjear-inmunidad` — **{s.shop_shield_cost}** · tu próxima trolleada no se anuncia "
-            f"(igual suma al ranking).",
-            f"🏷️ `/canjear-apodo` — **{s.shop_nick_cost}** · ponele un apodo a alguien por "
-            f"{s.shop_nick_hours} h (lo puede vetar).",
-            f"📌 `/canjear-mensaje` — **{s.shop_pin_cost}** · tu mensaje fijado en general por "
-            f"{s.shop_pin_hours} h.",
-        ]
-        if self.bot.get_cog("PredictionsCog") is not None:
-            lines.append("🔮 **Predicciones** — cuando el grupo arranca una partida, apostá tus puntos "
-                         "con los botones en el canal de partidas.")
-        me = interaction.user.id
-        extra = f"\n\nTenés **{self.bot.points.balance(me)}** puntos"
-        if self.store.shields(me):
-            extra += f" y **{self.store.shields(me)}** inmunidad(es) troll"
-        embed = discord.Embed(title="🛒 Tienda de puntos", description="\n".join(lines) + extra + ".",
-                              color=discord.Color.gold())
-        await interaction.response.send_message(embed=embed, ephemeral=True, allowed_mentions=_NO_MENTIONS)
+        await interaction.response.send_message(embed=tienda_embed(self.bot, interaction.user.id), ephemeral=True,
+                                                allowed_mentions=_NO_MENTIONS)
 
     @app_commands.command(name="canjear-rol", description="Canjeá puntos por un rol con nombre y color propios.")
     @app_commands.describe(nombre="Nombre del rol (máx 32).", color="Color en hex, ej. #ff66cc.")
@@ -197,11 +258,9 @@ class ShopCog(commands.Cog):
         role = None
         try:
             role = await guild.create_role(name=name, colour=colour, reason=f"Canje de puntos de {member}")
-            # Lo más alto posible (debajo del bot) para que el color se vea.
-            top = guild.me.top_role.position - 1
-            if top > role.position:
-                await role.edit(position=top)
             await member.add_roles(role, reason="Canje de puntos")
+            member = await guild.fetch_member(member.id)  # con el rol nuevo, para ver qué lo tapa
+            visible = await self._ensure_on_top(guild, member, role)
         except discord.HTTPException as exc:
             log.warning("Falló el canje de rol de %s (%s).", member, exc)
             if role is not None:
@@ -215,8 +274,10 @@ class ShopCog(commands.Cog):
         expires = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=s.shop_role_days)
         await self.store.add(ShopEffect(self._effect_id("role", member.id), "role", member.id, member.id,
                                         expires, {"role_id": role.id}))
+        note = "" if visible else ("\n⚠️ Otro de tus roles con color está más arriba que el del bot, así que el "
+                                   "color todavía no se ve: avisale a un admin que suba el rol del bot.")
         await interaction.followup.send(f"Listo, tenés el rol {role.mention} hasta "
-                                        f"{discord.utils.format_dt(expires, 'f')}.")
+                                        f"{discord.utils.format_dt(expires, 'f')}.{note}")
         await self._post_public(interaction, f"🎨 {member.mention} se compró el rol **{name}**.")
 
     @app_commands.command(name="canjear-inmunidad",

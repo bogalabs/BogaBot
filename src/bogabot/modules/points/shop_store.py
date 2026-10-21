@@ -64,6 +64,9 @@ class ShopStore:
                 return e
         return None
 
+    def all(self, kind: str) -> list[ShopEffect]:
+        return [e for e in self._effects.values() if e.kind == kind]
+
     def due(self, now: datetime) -> list[ShopEffect]:
         return [e for e in self._effects.values() if e.expires_at <= now]
 

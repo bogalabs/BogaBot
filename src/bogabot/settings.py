@@ -140,6 +140,7 @@ class Settings:
     sounds_event_voice: bool
     sounds_tts_lang: str
     sounds_tts_tld: str
+    sounds_game_start_voice: bool  # avisar en voz cuando arranca una partida con predicción
     # Puntos (canjeables por sonidos temporales)
     points_role_id: int | None
     points_file: str
@@ -291,6 +292,7 @@ class Settings:
             sounds_event_voice=os.getenv("SOUNDS_EVENT_VOICE", "true").strip().lower() in ("1", "true", "yes"),
             sounds_tts_lang=os.getenv("SOUNDS_TTS_LANG", "es").strip(),
             sounds_tts_tld=os.getenv("SOUNDS_TTS_TLD", "com.mx").strip(),
+            sounds_game_start_voice=_flag("SOUNDS_GAME_START_VOICE"),
             shop_file=os.getenv("SHOP_FILE", "data/shop.json"),
             shop_role_cost=int(os.getenv("SHOP_ROLE_COST", "150")),
             shop_role_days=max(1, int(os.getenv("SHOP_ROLE_DAYS", "7"))),

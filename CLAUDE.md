@@ -276,7 +276,10 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   (default 120). Sin esto, volver de una caída o una ingesta forzada de
   partidas anteriores inundaba #log-partidas. `/trolls-recalcular` nunca
   avisa (solo reescribe el storage).
-- **Tienda de canjes** (`modules/points/shop.py`): rol custom, inmunidad
+- **Tienda de canjes** (`modules/points/shop.py`): rol custom (Discord pinta
+  con el color del rol más alto: `_ensure_on_top` lo sube a debajo del rol
+  más alto del bot si otro rol con color lo tapa, al canjear y en cada
+  `expire_job`), inmunidad
   troll, apodo a otro (vetable) y mensaje fijado. Todo temporal, en
   `SHOP_FILE`, revertido por `expire_job`; si Discord rechaza la acción se
   reintegran los puntos. La inmunidad se engancha como filtro de
@@ -305,7 +308,13 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   los módulos reportan con `progress(uids, code, n)` sin chequear nada (si
   están apagadas no hace nada). Misiones de la semana = sample determinista
   con la semana como semilla. La racha del `/daily` vive en `PointsStore`.
-- **Ruleta:** campeones e ítems salen de **Data Dragon** (CDN público, sin
+- **Ayuda:** `/ayuda [sección]` = índice + desplegable (`help/cog.py::SECTIONS`);
+  la tienda se explica en `shop.py::tienda_embed` (la usan `/tienda` y
+  `/ayuda tienda`). Comando nuevo → sumarlo a su sección.
+- **Aviso de voz al arrancar partida:** `PredictionsCog._open` llama a
+  `SoundsCog.announce_game_start` (tarea aparte, `SOUNDS_GAME_START_VOICE`).
+- **Ruleta:** quien la tira elige los jugadores en un `PlayerPicker` efímero
+  (los canales de voz suelen tener más de 5). Campeones e ítems salen de **Data Dragon** (CDN público, sin
   key; `roulette/ddragon.py`, caché 12 h, si falla sigue con lo viejo). El
   encaje campeón-rol es por tags (`ROLE_FIT`) porque Data Dragon no trae
   posiciones; los temas de build salen de los tags de los ítems

@@ -283,9 +283,11 @@ aparte `sshserver` (fuera de este repo).
 - `/trolls-recalcular` — (solo rol dev, en `ADMIN_CHANNEL_ID`; igual corre solo al arrancar) vuelve a
   pedir a Riot las partidas guardadas antes del detector nuevo para
   completarles las stats y el timeline. Corre en segundo plano.
-- `/help` y `/ayuda` — listan los comandos disponibles según el rol de quien
-  los usa (rol `DEV_ROLE_ID` ve administración, rol `PLAYER_ROLE_ID` ve los
-  comandos de ranking). Ambos hacen lo mismo, son solo dos nombres.
+- `/help` y `/ayuda [sección]` — sin sección, un índice con un menú para
+  saltar a cada sección (LoL, trolls, puntos, tienda, apuestas, sonidos,
+  admin); con sección (`/ayuda puntos`) va directo. Cada uno ve las secciones
+  de sus roles (`DEV_ROLE_ID` ve admin, `PLAYER_ROLE_ID` ve LoL y trolls).
+  `/tienda` explica cada canje con un ejemplo de uso.
 - `/ingest-now` — fuerza una ingesta de partidas manual (solo rol dev). Es
   idempotente: correrlo varias veces no duplica nada, el dedup por
   (match_id, discord_id) saltea lo que ya está guardado.
@@ -326,7 +328,9 @@ más + partidas de LoL con el grupo) y los gastan en `/tienda`:
   `SOUND_REDEEM_DAYS` días (mp3/ogg/wav, hasta 5 s: límite de Discord). Cada
   uno lo tira cuando quiere desde el botón de soundboard. El bot **ya no
   entra solo** a tirar sonidos: `SOUNDS_CHANCE` vale 0 por defecto.
-- **`/canjear-rol`**, **`/canjear-inmunidad`** (tu próxima alerta troll no se
+- **`/canjear-rol`** (el rol se sube justo debajo del rol más alto del bot
+  para que se vea el color, y se re-chequea cada 5 min; si el bot está debajo
+  de otro rol con color de esa persona, avisa), **`/canjear-inmunidad`** (tu próxima alerta troll no se
   anuncia, igual suma al ranking), **`/canjear-apodo`** (el afectado lo veta
   con `/vetar-apodo` y se le devuelve la mitad a quien pagó) y
   **`/canjear-mensaje`** (fijado en general). Todo vence solo; si la acción
@@ -360,7 +364,8 @@ más + partidas de LoL con el grupo) y los gastan en `/tienda`:
   de predicciones quién va a ser el troll y el carry de la semana (#1 de
   `/trolls` y `/carries`). Cierran a los `WEEKLY_BET_CLOSE_DAYS` días y se
   pagan el lunes siguiente. Nadie puede apostar a ser él el troll.
-- **`/ruleta [modo]`**: a los que están en tu canal de voz (máx. 5) les toca
+- **`/ruleta [modo]`**: quien la tira elige en un desplegable quiénes de su
+  canal de voz juegan (máx. 5; si son 5 o menos vienen todos marcados) y les toca
   rol (sin repetir; en "fuera de tu zona" pesan más las posiciones que menos
   jugó cada uno), campeón (de Data Dragon, con más chance los que encajan en
   el rol y casi nunca los 3 que más jugás) y build (botas + 3-4 ítems de un
@@ -387,6 +392,7 @@ más + partidas de LoL con el grupo) y los gastan en `/tienda`:
 | `POINTS_ROLE_ID` | — | Rol que junta puntos. Sin esto no se cargan puntos, tienda ni predicciones. |
 | `SOUNDS_CHANCE` | `0` | Chance del sonido random (el bot entra solo). 0 = apagado. |
 | `SOUNDS_EVENT_PAPELON` / `SOUNDS_EVENT_VICTORY` | `""` | Sonido por evento (vacío = apagado). |
+| `SOUNDS_GAME_START_VOICE` | `true` | Al abrirse una predicción, el bot entra al canal de voz de los que juegan y avisa por TTS para que apuesten. |
 | `SOUND_REDEEM_COST` / `SOUND_REDEEM_DAYS` / `SOUND_REDEEM_MAX_SECONDS` | `100` / `7` / `5` | Canje de sonido (tope real 5.2 s por el soundboard). |
 | `SHOP_FILE` | `data/shop.json` | Estado de la tienda (efectos activos e inmunidades). |
 | `SHOP_ROLE_COST` / `SHOP_ROLE_DAYS` | `150` / `7` | Rol custom. |

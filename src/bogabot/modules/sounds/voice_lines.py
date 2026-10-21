@@ -3,7 +3,8 @@ carreada: el bot entra al canal de voz de los que jugaron y dice algo sobre
 quién fue. Lógica pura (sin Discord ni red) para poder testearla.
 
 `pick_spoken_verdict` elige de qué partida/jugador hablar y `build_line`
-arma el texto; la síntesis de voz está en `tts.py`.
+arma el texto; la síntesis de voz está en `tts.py`. `build_start_line` es el
+aviso de partida arrancada (para que vayan a apostar).
 """
 from __future__ import annotations
 
@@ -76,3 +77,19 @@ def build_line(spoken: SpokenVerdict, name: str, rng: random.Random | None = Non
     detail = top.detail if top is not None else f"terminó {v.record.kills}, {v.record.deaths}, {v.record.assists}"
     template = rng.choice(_LINES[(spoken.kind, level)])
     return template.format(name=name, champ=v.record.champion or "su campeón", detail=detail)
+
+
+def join_names(names: list[str]) -> str:
+    """"A", "A y B", "A, B y C"."""
+    if len(names) <= 1:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} y {names[-1]}"
+
+
+def build_start_line(names: list[str], queue: str, bets_channel: str | None) -> str:
+    """"Lauti, Nacho y Pepo arrancaron una partida de Ranked Flex. Hagan sus
+    apuestas en commands." `names` y `bets_channel` ya pronunciables."""
+    line = f"{join_names(names)} arrancaron una partida de {queue}."
+    if bets_channel:
+        line += f" Hagan sus apuestas en {bets_channel}."
+    return line

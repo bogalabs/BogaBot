@@ -13,6 +13,8 @@ from fixtures import record  # noqa: E402
 
 from bogabot.core.models import TrollFlag, TrollLevel, TrollVerdict  # noqa: E402
 from bogabot.modules.sounds.voice_lines import (  # noqa: E402
+    build_start_line,
+    join_names,
     CARRY,
     TROLL,
     SpokenVerdict,
@@ -59,6 +61,18 @@ class TestBuildLine(unittest.TestCase):
         self.assertEqual(spoken_name("🔥Pepo_Nullo🔥"), "Pepo Nullo")
         self.assertEqual(spoken_name("mcjhonson#LAS"), "mcjhonson")
         self.assertEqual(spoken_name("💀💀"), "alguien")
+
+
+class TestStartLine(unittest.TestCase):
+    def test_join_names(self):
+        self.assertEqual(join_names(["A"]), "A")
+        self.assertEqual(join_names(["A", "B"]), "A y B")
+        self.assertEqual(join_names(["A", "B", "C"]), "A, B y C")
+
+    def test_start_line(self):
+        self.assertEqual(build_start_line(["Lauti", "Pepo"], "Ranked Flex", "commands"),
+                         "Lauti y Pepo arrancaron una partida de Ranked Flex. Hagan sus apuestas en commands.")
+        self.assertEqual(build_start_line(["A", "B"], "ARAM", None), "A y B arrancaron una partida de ARAM.")
 
 
 if __name__ == "__main__":

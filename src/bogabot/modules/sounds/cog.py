@@ -46,7 +46,8 @@ from discord.ext import commands, tasks
 from bogabot.core.models import MatchRecord, TrollLevel
 from bogabot.core.timeutils import get_tz
 from bogabot.modules.sounds.tts import synthesize
-from bogabot.modules.sounds.voice_lines import CARRY, build_line, pick_spoken_verdict, spoken_name
+from bogabot.modules.sounds.voice_lines import (CARRY, build_line, build_start_line, pick_spoken_verdict,
+                                                spoken_name)
 
 if TYPE_CHECKING:
     from bogabot.bot import BogaBot
@@ -286,6 +287,37 @@ class SoundsCog(commands.Cog):
             task = asyncio.create_task(self._play_event(channel, match_id, match_records))
             self._event_tasks.add(task)
             task.add_done_callback(self._event_done)
+
+    def announce_game_start(self, user_ids: list[int], queue: str, bets_channel: str | None) -> None:
+        """Arrancó una partida del grupo con predicción abierta: si alguno de
+        los que juegan está en voz, el bot entra y avisa para que apuesten.
+        Corre en una tarea aparte (no frena a quien llama)."""
+        if not self.bot.settings.sounds_game_start_voice:
+            return
+        channel = self._voice_channel_of(set(user_ids))
+        if channel is None:
+            return
+        task = asyncio.create_task(self._play_start(channel, user_ids, queue, bets_channel))
+        self._event_tasks.add(task)
+        task.add_done_callback(self._event_done)
+
+    async def _play_start(self, channel: discord.VoiceChannel, user_ids: list[int], queue: str,
+                          bets_channel: str | None) -> None:
+        s = self.bot.settings
+        names = []
+        for uid in user_ids:
+            member = channel.guild.get_member(uid)
+            names.append(spoken_name(member.display_name if member else ""))
+        text = build_start_line(names, queue, spoken_name(bets_channel) if bets_channel else None)
+        voice_file = await synthesize(text, self.sounds_dir / f".tts-start-{channel.id}.mp3",
+                                      s.sounds_tts_lang, s.sounds_tts_tld)
+        if voice_file is None:
+            return
+        try:
+            await self._play_in(channel, voice_file)
+            log.info("Aviso de partida en #%s: %s", channel.name, text)
+        finally:
+            voice_file.unlink(missing_ok=True)
 
     def _event_done(self, task: asyncio.Task) -> None:
         self._event_tasks.discard(task)
