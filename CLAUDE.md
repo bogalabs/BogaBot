@@ -207,7 +207,7 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
 - **Detector de trolls:** `trolls/` es lógica pura sobre `MatchRecord`
   (reglas en `trolls/rules.py`, umbrales en `config/trolls.yaml`). Por eso
   `MatchRecord` guarda stats extendidas (contexto del equipo, tiempo muerto,
-  pings, control wards) y datos del **timeline** (primera sangre, muertes
+  control wards) y datos del **timeline** (primera sangre, muertes
   antes del 10, oro vs. rival al 15, items vendidos, ejecuciones), todos
   opcionales: los registros viejos quedan en `None` y esas reglas se
   saltean (`/trolls-recalcular` los completa vía `update_match`). El
@@ -225,7 +225,7 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   `TROLLS_STATE_FILE` desde cuándo cuenta el ranking. Una partida floja no
   es trolleada: las reglas `weak=True` (mal rendimiento) suman entre todas
   como mucho `weak_points_cap`; hace falta una señal fuerte (feeder, AFK,
-  ghost, ancla, items vendidos, base, throw). Avisos: desde `levels.troll`,
+  ghost, ancla, items vendidos, throw). Avisos: desde `levels.troll`,
   en `TROLL_CHANNEL_ID` (default `RANKING_CHANNEL_ID`) la línea anecdótica
   (`TrollService.build_general_line`: los cargos más "contables" según
   `STORY_PRIORITY`, cuyos `detail` están escritos como frases) + el detalle
@@ -235,8 +235,8 @@ escribir la clase nueva en `storage/` y cambiar **una línea** en `bot.py`.
   recalcula al arrancar, en silencio (`enrich_stored_matches(quiet=True)`:
   logs solo DEBUG, nada a Discord, sin avisos), las partidas con
   `timeline_version` vieja; se apaga solo. `/trolls-recalcular desde_cero:True`
-  reanaliza todas (`everything=True`) y deshace el reinicio (`clear_reset`). Las situaciones del timeline (base perdida
-  estando lejos, throw, AFK, morir con oro) las calcula `riot/mapper.py`;
+  reanaliza todas (`everything=True`) y deshace el reinicio (`clear_reset`). Las situaciones del timeline (throw, AFK,
+  morir con oro) las calcula `riot/mapper.py`;
   si se agrega una, subir `TIMELINE_VERSION` para que `/trolls-recalcular`
   reanalice las partidas viejas. Solo se avisan partidas que
   terminaron hace menos de `alert_max_age_hours`. Ranked multiplica los

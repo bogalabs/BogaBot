@@ -107,7 +107,7 @@ _Última actualización: 2026-09-29_
     (feeder, AFK, primera sangre, muertes antes del 10, línea perdida al
     15, delivery al rival, poco daño/KP, visión, control wards, farm,
     tiempo muerto, ancla del equipo, ejecutado, items vendidos, FF al 15,
-    barrida, pings de "?", último en Arena) con umbrales por modo (Grieta,
+    barrida, último en Arena) con umbrales por modo (Grieta,
     ARAM, modos caóticos, Arena).
   - Niveles: alerta troll (`TROLL_CHANNEL_ID`, default rankings) y
     **papelón histórico a `GENERAL_CHANNEL_ID`** solo si es muy fuerte.
@@ -154,7 +154,7 @@ _Última actualización: 2026-09-29_
       según la duración, primera sangre solo temprana, delivery con mayoría
       de muertes al rival, tanques y carries por daño exentos de "poco
       daño"/"pacifista"/"poco farm", control wards solo con visión floja,
-      FF y barrida solo como agravantes, base perdida sin contar split push,
+      FF y barrida solo como agravantes,
       throw solo si lo agarraron solo, ahorrista solo antes del 25.
       `TIMELINE_VERSION` 3 — 2026-09-29
 
@@ -177,6 +177,11 @@ _Última actualización: 2026-09-29_
       Carry-o-metro. El motor de trolls quedó genérico (`Catalog` +
       `Flavor`). `TIMELINE_VERSION` 4 (desventaja de oro para remontadas):
       el recálculo silencioso completa las partidas viejas — 2026-10-01
+- [x] Se sacó la regla troll "nos tiraban la base y estaba farmeando"
+      (`base_absent`): daba falsos positivos. Fuera la regla, su cálculo
+      en `riot/mapper.py` y sus campos en `MatchRecord` (los registros
+      viejos que los tengan se leen igual, el dato se ignora). También
+      la de pings de "?" (`pinger`, campo `question_pings`) — 2026-10-19
 
 ## 🚧 En progreso
 - [ ] _(nada activo)_
@@ -247,7 +252,7 @@ _Última actualización: 2026-09-29_
 - **Detector de trolls (2026-09-28):** verificado con tests y JSON sintético
   con la forma de match-v5/timeline; **no** probado aún contra respuestas
   reales de Riot ni posteando en Discord. Los campos usados
-  (`enemyMissingPings`, `totalTimeSpentDead`, `visionWardsBoughtInGame`,
+  (`totalTimeSpentDead`, `visionWardsBoughtInGame`,
   eventos `CHAMPION_KILL`/`ITEM_SOLD`/`ITEM_UNDO`, `participantFrames`)
   son los documentados por Riot; si alguno viniera distinto, la regla que
   lo usa simplemente no se dispara (no rompe la ingesta).

@@ -368,9 +368,7 @@ más + partidas de LoL con el grupo) y los gastan en `/tienda`:
 Después de cada partida, cada jugador del grupo se juzga con ~25 reglas
 (`src/bogabot/trolls/rules.py`). Situaciones que detecta:
 
-- **Del timeline (qué pasó y cuándo):** "nos tiraban la base y estaba
-  farmeando" (inhibidores/torres del nexo cayendo mientras él, vivo, estaba
-  lejos), *throw* (murió primero y enseguida perdieron Barón, Ancestral o
+- **Del timeline (qué pasó y cuándo):** *throw* (murió primero y enseguida perdieron Barón, Ancestral o
   el nexo), AFK (minutos quieto sin ganar experiencia), primera sangre
   regalada, muertes antes del minuto 10, línea perdida por oro al 15,
   "delivery" al rival de línea, ejecutado por torres/minions, items
@@ -378,7 +376,7 @@ Después de cada partida, cada jugador del grupo se juzga con ~25 reglas
 - **De las stats de la partida:** feeder, KDA trágico, 0 kills y 0
   asistencias, pacifista, poco daño o participación, visión nula, cero
   control wards, farm bajo, mucho tiempo muerto, "ancla" del equipo, FF
-  antes del 20, barrida en kills, spam de pings de "?", último en Arena.
+  antes del 20, barrida en kills, último en Arena.
 
 Cada cargo suma puntos troll; en ranked se multiplican y si igual ganaron se
 achican. Los umbrales cambian según el modo (ARAM y modos caóticos toleran
@@ -410,7 +408,7 @@ asistencias, ancla del equipo, vender items, dejar caer la base o throw.
 |---|---|
 | menos de `levels.troll` (8) | Nada aparte; suma al ranking troll y se ve en el troll-o-metro del aviso de partida. |
 | `levels.troll`+ | 🤡 **Trolleada**: en `TROLL_CHANNEL_ID` (o el de rankings), una línea con la anécdota etiquetando al jugador + el detalle compacto. |
-| `levels.papelon`+ (15) | 💀 **Papelón**: además, **una línea corta en `GENERAL_CHANNEL_ID`**: *"¡Trolleada histórica! @jugador nos tiraban la base y estaba farmeando la jungla. Encima, murió 12 veces. (Lee Sin 1/12/2)"*. Solo esto va a #general. |
+| `levels.papelon`+ (15) | 💀 **Papelón**: además, **una línea corta en `GENERAL_CHANNEL_ID`**: *"¡Trolleada histórica! @jugador se quedó 4 minutos quieto sin hacer nada. Encima, murió 12 veces. (Lee Sin 1/12/2)"*. Solo esto va a #general. |
 
 Solo se avisan partidas recientes (`alert_max_age_hours`, 36 h). Todo se
 ajusta en **`config/trolls.yaml`** sin tocar código; el ranking troll se

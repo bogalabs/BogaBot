@@ -360,7 +360,7 @@ class TrollService:
 
     def anecdote(self, verdict: TrollVerdict, max_parts: int = 2) -> str:
         """Los cargos más "contables" de la partida, en una o dos frases:
-        "nos tiraban la base y estaba farmeando la jungla. Encima, murió 12 veces"."""
+        "se quedó 4 minutos quieto sin hacer nada. Encima, murió 12 veces"."""
         story = self.config.catalog.story_priority
         flags = sorted(verdict.flags, key=lambda f: (-story.get(f.code, 0), -f.points))
         parts = [f.detail for f in flags[:max_parts]]
@@ -405,8 +405,8 @@ class TrollService:
     # --- Mensajes -----------------------------------------------------------
     def build_general_line(self, verdict: TrollVerdict) -> str:
         """Una línea corta y anecdótica para #general, ej.:
-        "🤡 **¡Chica trolleada!** @Lauti nos tiraban la base y estaba
-        farmeando la jungla. _(Lee Sin 1/12/2)_"."""
+        "🤡 **¡Chica trolleada!** @Lauti se quedó 4 minutos quieto sin
+        hacer nada. _(Lee Sin 1/12/2)_"."""
         r = verdict.record
         rng = _rng(r)
         c = self.config
@@ -580,6 +580,4 @@ class TrollService:
             parts.append(f"oro vs rival al 15: {r.gold_diff_15:+,}".replace(",", "."))
         if r.items_sold is not None:
             parts.append(f"{r.items_sold} items vendidos")
-        if r.question_pings is not None:
-            parts.append(f"{r.question_pings} pings de '?'")
         return " · ".join(parts)[:_FIELD_LIMIT]
